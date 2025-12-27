@@ -5,7 +5,7 @@ use ringbuf::{
     traits::{Consumer, Producer, Split},
     HeapCons, HeapProd, HeapRb,
 };
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Poll, Waker};
 
@@ -16,28 +16,30 @@ pub struct Mic {
 
 struct WakerState {
     waker: Option<Waker>,
-    has_data: bool,
 }
 
 pub struct MicStream {
     consumer: HeapCons<f32>,
     _stream: cpal::Stream,
     waker_state: Arc<Mutex<WakerState>>,
-    current_sample_rate: Arc<AtomicU32>,
+    sample_rate: u32,
     read_buffer: Vec<f32>,
+    has_data: Arc<AtomicBool>,
 }
 
 struct Ctx {
     producer: HeapProd<f32>,
     waker_state: Arc<Mutex<WakerState>>,
-    current_sample_rate: Arc<AtomicU32>,
+    has_data: Arc<AtomicBool>,
 }
 
 const CHUNK_SIZE: usize = 256;
+const RING_BUFFER_MULTIPLIER: usize = 8; // Increased from 4 for better buffering
 
 impl MicStream {
+    #[inline]
     pub fn sample_rate(&self) -> u32 {
-        self.current_sample_rate.load(Ordering::Acquire)
+        self.sample_rate
     }
 }
 
@@ -49,15 +51,22 @@ impl Stream for MicStream {
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
         let this = self.as_mut().get_mut();
+        
+        // Try to read data first
         let popped = this.consumer.pop_slice(&mut this.read_buffer);
         if popped > 0 {
+            // Reset the flag atomically - no mutex needed for reads
+            this.has_data.store(false, Ordering::Release);
+            // Reuse the buffer, only clone the filled portion
             return Poll::Ready(Some(this.read_buffer[..popped].to_vec()));
         }
+        
+        // No data available, register waker
         {
             let mut state = this.waker_state.lock().unwrap();
-            state.has_data = false;
             state.waker = Some(cx.waker().clone());
         }
+        
         Poll::Pending
     }
 }
@@ -82,29 +91,30 @@ impl Mic {
     }
 
     pub fn stream(self) -> Result<MicStream> {
-        let buffer_size = CHUNK_SIZE * 4;
+        let buffer_size = CHUNK_SIZE * RING_BUFFER_MULTIPLIER;
         let rb = HeapRb::<f32>::new(buffer_size);
         let (producer, consumer) = rb.split();
 
         let waker_state: Arc<Mutex<WakerState>> = Arc::new(Mutex::new(WakerState {
             waker: None,
-            has_data: false,
         }));
 
-        let current_sample_rate = Arc::new(AtomicU32::new(self.config.sample_rate.0));
-        tracing::info!(init = self.config.sample_rate.0, "mic_sample_rate");
+        let has_data = Arc::new(AtomicBool::new(false));
+        let sample_rate = self.config.sample_rate.0;
+        
+        tracing::info!(sample_rate, buffer_size, "mic_stream_initialized");
 
         let ctx = Arc::new(Mutex::new(Ctx {
             producer,
             waker_state: waker_state.clone(),
-            current_sample_rate: current_sample_rate.clone(),
+            has_data: has_data.clone(),
         }));
 
         let ctx_clone = ctx.clone();
         let stream = self.device.build_input_stream(
             &self.config,
             move |data: &[f32], _| {
-                let mut ctx: std::sync::MutexGuard<'_, Ctx> = ctx_clone.lock().unwrap();
+                let mut ctx = ctx_clone.lock().unwrap();
                 Self::process_audio_data(&mut ctx, data);
             },
             |err| {
@@ -119,29 +129,29 @@ impl Mic {
             consumer,
             _stream: stream,
             waker_state,
-            current_sample_rate,
+            sample_rate,
             read_buffer: vec![0.0f32; CHUNK_SIZE],
+            has_data,
         })
     }
 
     fn process_audio_data(ctx: &mut Ctx, data: &[f32]) {
         let pushed = ctx.producer.push_slice(data);
+        
         if pushed < data.len() {
             let dropped = data.len() - pushed;
-            tracing::warn!(dropped, "mic_samples_dropped");
+            tracing::warn!(dropped, total = data.len(), "mic_samples_dropped");
         }
+        
         if pushed > 0 {
-            let should_wake = {
-                let mut waker_state = ctx.waker_state.lock().unwrap();
-                if !waker_state.has_data {
-                    waker_state.has_data = true;
-                    waker_state.waker.take()
-                } else {
-                    None
+            // Set flag first to avoid race condition
+            let was_empty = !ctx.has_data.swap(true, Ordering::AcqRel);
+            
+            // Only wake if buffer was previously empty
+            if was_empty {
+                if let Some(waker) = ctx.waker_state.lock().unwrap().waker.take() {
+                    waker.wake();
                 }
-            };
-            if let Some(waker) = should_wake {
-                waker.wake();
             }
         }
     }

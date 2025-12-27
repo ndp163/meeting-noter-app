@@ -1,0 +1,4 @@
+module WhisperKitBridge {
+    header "WhisperKit-Bridging-Header.h"
+    export *
+}
