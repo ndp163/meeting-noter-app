@@ -30,6 +30,11 @@ cidre = "0.11.8"
 tracing = "0.1.44"
 futures-util = "0.3.31"
 ringbuf = "0.4.8"
-tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread"]}
+tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "sync"] }
 crossbeam-channel = "0.5.15"
 futures = "0.3.31"
+regex = "1.11.1"
+webrtc-vad = "0.4.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# macOS-specific dependencies for WhisperKit integration

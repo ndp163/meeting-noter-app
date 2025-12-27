@@ -1,18 +1,45 @@
 use anyhow::Result;
-use crossbeam_channel::Receiver;
 use futures_util::StreamExt;
+use std::sync::Arc;
 
 mod audio;
-use audio::{mic::Mic, speaker::Speaker};
+mod bridges;
+mod types;
 
-enum AudioSource {
-    Mic(Vec<f32>),
-    System(Vec<f32>),
-}
+use audio::{
+    mic::Mic, 
+    speaker::Speaker,
+    processing::mixer,
+    transcription::transcription_task,
+};
+use bridges::whisperkit::WhisperKit;
+use types::AudioSource;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() -> Result<()> {
     let (tx, rx) = crossbeam_channel::unbounded();
+
+    // Initialize WhisperKit for real-time transcription
+    let whisper = Arc::new(WhisperKit::new());
+    println!("Initializing WhisperKit (model: small.en) with 120s timeout...");
+    
+    // Try to initialize with timeout - use "small.en" for better English transcription
+    let init_result = tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        whisper.initialize(Some("small.en"))
+    ).await;
+    
+    match init_result {
+        Ok(Ok(_)) => println!("✓ WhisperKit initialized successfully"),
+        Ok(Err(e)) => {
+            eprintln!("✗ Failed to initialize WhisperKit: {}", e);
+            eprintln!("Continuing without transcription...");
+        }
+        Err(_) => {
+            eprintln!("✗ WhisperKit initialization timed out after 120s");
+            eprintln!("Continuing without transcription...");
+        }
+    }
 
     // Initialize microphone
     let mic = Mic::new().expect("Failed to initialize microphone");
@@ -30,11 +57,27 @@ pub async fn run() -> Result<()> {
     // Use the higher sample rate for output
     let output_sample_rate = mic_sample_rate.max(speaker_sample_rate);
 
-    // Run mixer in blocking task since it blocks indefinitely
+    // Channel for transcription
+    let (transcription_tx, transcription_rx) = crossbeam_channel::unbounded::<Vec<f32>>();
+    
+    println!("Starting audio mixer...");
+    
+    // Run transcription task in spawn_blocking to avoid Send issue with FFI
+    let whisper_clone = whisper.clone();
     tokio::task::spawn_blocking(move || {
-        mixer(rx, output_sample_rate);
+        let rt = tokio::runtime::Handle::current();
+        rt.block_on(async move {
+            transcription_task(transcription_rx, whisper_clone).await;
+        });
     });
 
+    // Run mixer in blocking task since it blocks indefinitely
+    tokio::task::spawn_blocking(move || {
+        mixer(rx, output_sample_rate, transcription_tx);
+    });
+
+    println!("Starting mic and speaker streams...");
+    
     // Run both streams concurrently
     let tx_mic = tx.clone();
     let tx_sys = tx.clone();
@@ -66,53 +109,20 @@ async fn spawn_mic_stream(tx: crossbeam_channel::Sender<AudioSource>, mic: Mic) 
 
 async fn spawn_speaker_stream(
     tx: crossbeam_channel::Sender<AudioSource>,
-    speaker: audio::speaker::Speaker,
+    speaker: Speaker,
 ) {
-    let mut stream = speaker.stream();
+    let mut stream = match speaker.stream() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Failed to create speaker stream: {}", e);
+            return;
+        }
+    };
 
     while let Some(chunk) = stream.next().await {
         if tx.send(AudioSource::System(chunk)).is_err() {
             eprintln!("Speaker receiver dropped");
             break;
         }
-    }
-}
-
-fn mixer(rx: Receiver<AudioSource>, sample_rate: u32) {
-    let spec = hound::WavSpec {
-        channels: 1,
-        sample_rate,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
-
-    let mut writer = hound::WavWriter::create("mixed.wav", spec).unwrap();
-
-    let mut mic_buf = Vec::<f32>::new();
-    let mut sys_buf = Vec::<f32>::new();
-
-    let mic_gain = 1.0;
-    let sys_gain = 1.0;
-
-    loop {
-        match rx.recv().unwrap() {
-            AudioSource::Mic(data) => mic_buf.extend(data),
-            AudioSource::System(data) => sys_buf.extend(data),
-        }
-
-        let len = mic_buf.len().min(sys_buf.len());
-        if len == 0 {
-            continue;
-        }
-
-        for i in 0..len {
-            let mixed = mic_buf[i] * mic_gain + sys_buf[i] * sys_gain;
-
-            let s = (mixed.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
-            writer.write_sample(s).unwrap();
-        }
-
-        mic_buf.drain(..len);
-        sys_buf.drain(..len);
     }
 }
