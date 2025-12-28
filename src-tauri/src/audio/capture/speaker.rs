@@ -7,7 +7,7 @@ use ringbuf::{
     HeapCons, HeapProd, HeapRb,
 };
 use std::any::TypeId;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Poll, Waker};
 use tracing::info;
@@ -18,7 +18,6 @@ pub struct Speaker {
 }
 struct WakerState {
     waker: Option<Waker>,
-    has_data: bool,
 }
 pub struct SpeakerStream {
     consumer: HeapCons<f32>,
@@ -28,8 +27,10 @@ pub struct SpeakerStream {
     waker_state: Arc<Mutex<WakerState>>,
     current_sample_rate: Arc<AtomicU32>,
     read_buffer: Vec<f32>,
+    has_data: Arc<AtomicBool>,
 }
 impl SpeakerStream {
+    #[inline]
     pub fn sample_rate(&self) -> u32 {
         self.current_sample_rate.load(Ordering::Acquire)
     }
@@ -44,11 +45,11 @@ impl Stream for SpeakerStream {
         let this = self.as_mut().get_mut();
         let popped = this.consumer.pop_slice(&mut this.read_buffer);
         if popped > 0 {
+            this.has_data.store(false, Ordering::Release);
             return Poll::Ready(Some(this.read_buffer[..popped].to_vec()));
         }
         {
             let mut state = this.waker_state.lock().unwrap();
-            state.has_data = false;
             state.waker = Some(cx.waker().clone());
         }
         Poll::Pending
@@ -63,8 +64,10 @@ struct AudioContext {
     producer: HeapProd<f32>,
     waker_state: Arc<Mutex<WakerState>>,
     current_sample_rate: Arc<AtomicU32>,
+    has_data: Arc<AtomicBool>,
 }
 const CHUNK_SIZE: usize = 256;
+const RING_BUFFER_MULTIPLIER: usize = 8; // Tăng buffer để giảm drop
 impl Speaker {
     pub fn new() -> Result<Self> {
         let tap_desc = ca::TapDesc::with_mono_global_tap_excluding_processes(&ns::Array::new());
@@ -100,20 +103,21 @@ impl Speaker {
         let format = av::AudioFormat::with_asbd(&asbd)
             .ok_or(anyhow::anyhow!("Failed to create audio format"))?;
 
-        let buffer_size = CHUNK_SIZE * 4;
+        let buffer_size = CHUNK_SIZE * RING_BUFFER_MULTIPLIER;
         let rb = HeapRb::<f32>::new(buffer_size);
         let (producer, consumer) = rb.split();
         let waker_state = Arc::new(Mutex::new(WakerState {
             waker: None,
-            has_data: false,
         }));
         let current_sample_rate = Arc::new(AtomicU32::new(asbd.sample_rate as u32));
-        info!(init = asbd.sample_rate, "sample_rate");
+        let has_data = Arc::new(AtomicBool::new(false));
+        info!(init = asbd.sample_rate, buffer_size, "speaker_stream_initialized");
         let mut ctx = Box::new(AudioContext {
             format,
             producer,
             waker_state: waker_state.clone(),
             current_sample_rate: current_sample_rate.clone(),
+            has_data: has_data.clone(),
         });
         let device = self.start_device(&mut ctx)?;
         Ok(SpeakerStream {
@@ -124,6 +128,7 @@ impl Speaker {
             waker_state,
             current_sample_rate,
             read_buffer: vec![0.0f32; CHUNK_SIZE],
+            has_data,
         })
     }
 
@@ -240,20 +245,14 @@ impl Speaker {
         let pushed = ctx.producer.push_slice(data);
         if pushed < data.len() {
             let dropped = data.len() - pushed;
-            tracing::warn!(dropped, "samples_dropped");
+            tracing::warn!(dropped, total = data.len(), "speaker_samples_dropped");
         }
         if pushed > 0 {
-            let should_wake = {
-                let mut waker_state = ctx.waker_state.lock().unwrap();
-                if !waker_state.has_data {
-                    waker_state.has_data = true;
-                    waker_state.waker.take()
-                } else {
-                    None
+            let was_empty = !ctx.has_data.swap(true, Ordering::AcqRel);
+            if was_empty {
+                if let Some(waker) = ctx.waker_state.lock().unwrap().waker.take() {
+                    waker.wake();
                 }
-            };
-            if let Some(waker) = should_wake {
-                waker.wake();
             }
         }
     }

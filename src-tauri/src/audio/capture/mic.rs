@@ -87,7 +87,7 @@ impl Mic {
     }
 
     pub fn sample_rate(&self) -> u32 {
-        self.config.sample_rate.0
+        self.config.sample_rate
     }
 
     pub fn stream(self) -> Result<MicStream> {
@@ -100,7 +100,7 @@ impl Mic {
         }));
 
         let has_data = Arc::new(AtomicBool::new(false));
-        let sample_rate = self.config.sample_rate.0;
+        let sample_rate = self.config.sample_rate;
         
         tracing::info!(sample_rate, buffer_size, "mic_stream_initialized");
 
