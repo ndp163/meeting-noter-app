@@ -154,15 +154,18 @@ public func whisper_kit_init(
         
         if success {
             print("Swift: WhisperKit initialized successfully, calling Rust callback")
-            "success".withCString { successPtr in
-                callback(successPtr, nil, context)
-            }
+            // Create persistent C strings that will be freed after callback
+            let successStr = strdup("success")
+            callback(successStr, nil, context)
+            // Free after Rust has copied the string
+            free(successStr)
         } else {
             let errorMsg = error ?? "Unknown error"
             print("Swift: WhisperKit initialization failed: \(errorMsg)")
-            errorMsg.withCString { errorPtr in
-                callback(nil, errorPtr, context)
-            }
+            let errorStr = strdup(errorMsg)
+            callback(nil, errorStr, context)
+            // Free after Rust has copied the string
+            free(errorStr)
         }
     }
 }
@@ -181,14 +184,14 @@ public func whisper_kit_transcribe(
     
     bridge.transcribe(audioData: data) { text, error in
         if let text = text {
-            text.withCString { textPtr in
-                callback(textPtr, nil, context)
-            }
+            let textStr = strdup(text)
+            callback(textStr, nil, context)
+            free(textStr)
         } else {
             let errorMsg = error ?? "Transcription failed"
-            errorMsg.withCString { errorPtr in
-                callback(nil, errorPtr, context)
-            }
+            let errorStr = strdup(errorMsg)
+            callback(nil, errorStr, context)
+            free(errorStr)
         }
     }
 }
@@ -207,14 +210,14 @@ public func whisper_kit_transcribe_stream(
     
     bridge.transcribeStream(audioData: data) { text, error in
         if let text = text {
-            text.withCString { textPtr in
-                callback(textPtr, nil, context)
-            }
+            let textStr = strdup(text)
+            callback(textStr, nil, context)
+            free(textStr)
         } else {
             let errorMsg = error ?? "Stream transcription failed"
-            errorMsg.withCString { errorPtr in
-                callback(nil, errorPtr, context)
-            }
+            let errorStr = strdup(errorMsg)
+            callback(nil, errorStr, context)
+            free(errorStr)
         }
     }
 }

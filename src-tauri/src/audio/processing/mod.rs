@@ -1,3 +1,9 @@
+//! Audio processing utilities
+//!
+//! - **mixer**: Mix mic + speaker audio and write to WAV
+//! - **resample**: Convert sample rates (48kHz → 16kHz for AI)
+//! - **filter**: Remove non-speech segments via VAD
+
 mod mixer;
 mod resample;
 mod filter;

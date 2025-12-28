@@ -8,6 +8,7 @@ use crate::audio::processing::{resample_to_16khz_fast, filter_non_speech};
 pub async fn transcription_task(
     rx: crossbeam_channel::Receiver<Vec<f32>>,
     whisper: Arc<WhisperKit>,
+    source_label: &str,
 ) {
     // Initialize WebRTC VAD
     let mut vad = match WebRtcVAD::new() {
@@ -17,7 +18,7 @@ pub async fn transcription_task(
             return;
         }
     };
-    println!("✓ WebRTC VAD initialized (aggressive mode) - Real-time streaming enabled");
+    eprintln!("✓ {} - VAD initialized", source_label);
     
     let mut last_transcription_time = std::time::Instant::now();
     let mut chunks_received = 0;
@@ -37,8 +38,8 @@ pub async fn transcription_task(
                 let non_zero = audio_data.iter().filter(|x| x.abs() > 0.001).count();
                 
                 if chunks_received % 10 == 0 {
-                    println!("🔊 Audio: level={:.1}dB, max={:.3}, non-zero={}/{}", 
-                        db, max_val, non_zero, audio_data.len());
+                    eprintln!("{} Audio: level={:.1}dB, max={:.3}, non-zero={}/{}", 
+                        source_label, db, max_val, non_zero, audio_data.len());
                 }
                 
                 // Quick resample to 16kHz
@@ -56,8 +57,8 @@ pub async fn transcription_task(
                 
                 let norm_max = normalized.iter().map(|x| x.abs()).fold(0.0f32, f32::max);
                 if chunks_received % 10 == 0 {
-                    println!("   After resample: {} samples, max={:.3} -> normalized to {:.3}", 
-                        normalized.len(), resampled_max, norm_max);
+                    eprintln!("   {} After resample: {} samples, max={:.3} -> normalized to {:.3}", 
+                        source_label, normalized.len(), resampled_max, norm_max);
                 }
                 
                 // Convert f32 to i16 for WebRTC VAD (optimized)
@@ -104,10 +105,10 @@ pub async fn transcription_task(
                         println!("   After filter: '{}'", cleaned);
                         if !cleaned.trim().is_empty() {
                             let processing_ms = start_time.elapsed().as_millis();
-                            println!("📝 [{}ms] {}", processing_ms, cleaned);
+                            println!("📝 {} [{}ms] {}", source_label, processing_ms, cleaned);
                             last_transcription_time = std::time::Instant::now();
                         } else {
-                            println!("   (empty after filtering)");
+                            eprintln!("   {} (empty after filtering)", source_label);
                         }
                     }
                     Err(e) => {
