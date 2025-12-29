@@ -1,72 +1,122 @@
-import { Video } from "lucide-react";
-import { useNavigate } from "react-router";
-import {
-  PlatformSelection,
-  PlatformCard,
-} from "@/features/home/PlatformSelection";
-import TeamsLogo from "@assets/teams-logo.svg";
-import ZoomLogo from "@assets/zoom-logo.svg";
-import GoogleMeetLogo from "@assets/google-meet-logo.svg";
+import { useState } from "react";
+import { Sidebar } from "@/features/home/sidebar";
+import { Tab } from "@/features/home/tab";
+import { Message } from "@/features/home/message";
+import { AudioPlayer } from "@/features/home/audio-player";
+
+interface TranscriptMessage {
+  id: string;
+  speaker: string;
+  timestamp: string;
+  content: string;
+  isUser: boolean;
+}
 
 export const HomePage = () => {
-  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<"transcript" | "summary">(
+    "transcript"
+  );
+  const [activeMeetingId, setActiveMeetingId] = useState("1");
+  const [isPlaying, setIsPlaying] = useState(false);
 
-  const handlePlatformClick = (platformId: string) => {
-    navigate(`/${platformId}`);
-  };
+  // Mock data
+  const meetings = [
+    { id: "1", title: "Untitled", date: "11:21 12/02/25", isActive: true },
+    { id: "2", title: "Untitled", date: "11:21 12/02/25" },
+    { id: "3", title: "Untitled", date: "11:21 14/02/25" },
+    { id: "4", title: "Untitled", date: "11:21 12/02/25" },
+    { id: "5", title: "Untitled", date: "11:21 12/02/25" },
+    { id: "6", title: "Untitled", date: "11:21 12/02/25" },
+  ];
 
-  const platforms: PlatformCard[] = [
+  const messages: TranscriptMessage[] = [
     {
-      id: "teams",
-      name: "Microsoft Teams",
-      color: "text-blue-600",
-      bgColor: "bg-blue-50",
-      borderColor: "border-blue-200",
-      icon: TeamsLogo,
+      id: "1",
+      speaker: "You",
+      timestamp: "00:01",
+      content: "Hello world!",
+      isUser: true,
     },
     {
-      id: "zoom",
-      name: "Zoom",
-      color: "text-sky-600",
-      bgColor: "bg-sky-50",
-      borderColor: "border-sky-200",
-      icon: ZoomLogo,
+      id: "2",
+      speaker: "Speaker",
+      timestamp: "01:04",
+      content:
+        "Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s",
+      isUser: false,
     },
     {
-      id: "meet",
-      name: "Google Meet",
-      color: "text-green-600",
-      bgColor: "bg-green-50",
-      borderColor: "border-green-200",
-      icon: GoogleMeetLogo,
+      id: "3",
+      speaker: "You",
+      timestamp: "00:01",
+      content:
+        "This handy tool helps you create dummy text for all your layout needs. We are gradually adding new functionality and we welcome your suggestions and feedback.",
+      isUser: true,
     },
   ];
 
+  const handleStartCapture = () => {
+    console.log("Start capture");
+  };
+
+  const handleMeetingSelect = (id: string) => {
+    setActiveMeetingId(id);
+  };
+
   return (
-    <div className="min-h-screen bg-linear-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center p-8">
-      <div className="max-w-4xl w-full">
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-indigo-600 rounded-2xl mb-6">
-            <Video className="w-10 h-10 text-white" />
-          </div>
-          <h1 className="text-gray-900 mb-4 text-2xl">
-            Welcome to Meeting Noter
-          </h1>
-          <p className="text-gray-600 max-w-2xl mx-auto">
-            Select the platform you want to capture captions from
-          </p>
+    <div className="flex h-screen bg-white">
+      {/* Sidebar */}
+      <Sidebar
+        meetings={meetings}
+        activeMeetingId={activeMeetingId}
+        onMeetingSelect={handleMeetingSelect}
+        onStartCapture={handleStartCapture}
+      />
+
+      {/* Main Content */}
+      <div className="flex flex-col gap-2.5 flex-1 p-5 overflow-hidden">
+        {/* Header with Tabs */}
+        <div className="flex gap-2.5 h-[78px] items-center">
+          <Tab
+            label="Transcript"
+            isActive={activeTab === "transcript"}
+            onClick={() => setActiveTab("transcript")}
+          />
+          <Tab
+            label="Summary"
+            isActive={activeTab === "summary"}
+            onClick={() => setActiveTab("summary")}
+          />
         </div>
 
-        {/* Platform Cards */}
-        <div className="grid md:grid-cols-3 gap-6">
-          {platforms.map((platform) => (
-            <PlatformSelection
-              key={platform.id}
-              platform={platform}
-              onPlatformSelect={handlePlatformClick}
-            />
-          ))}
+        {/* Content Area */}
+        <div className="flex-1 border border-custom-bg-primary rounded-[20px] p-5 overflow-y-auto">
+          <div className="flex flex-col gap-5">
+            {activeTab === "transcript" ? (
+              messages.map((message) => (
+                <Message
+                  key={message.id}
+                  speaker={message.speaker}
+                  timestamp={message.timestamp}
+                  content={message.content}
+                  isUser={message.isUser}
+                />
+              ))
+            ) : (
+              <div className="text-custom-text-primary">
+                <p>Summary content will be displayed here.</p>
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* Audio Player */}
+        <AudioPlayer
+          currentTime="00:00"
+          totalTime="4:43"
+          isPlaying={isPlaying}
+          onPlayPause={() => setIsPlaying(!isPlaying)}
+        />
       </div>
     </div>
   );

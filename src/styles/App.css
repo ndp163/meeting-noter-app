@@ -42,6 +42,15 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+@theme {
+  --color-custom-text-primary: #404a4c;
+  --color-custom-text-secondary: #404a4cb3;
+  --color-custom-text-highlight: #2a4b8b;
+  --color-custom-red: #c50b0e;
+  --color-custom-bg-primary: #e2e2e2;
+  --color-custom-bg-secondary: #f3f3f3;
+}
+
 :root {
   --radius: 0.625rem;
   --background: oklch(1 0 0);
