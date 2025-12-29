@@ -181,7 +181,14 @@ impl AudioRecorder {
                 let rt = tokio::runtime::Handle::current();
                 rt.block_on(async move {
                     tokio::select! {
-                        _ = transcription_task(mic_rx, whisper_mic, "🎤 Microphone") => {
+                        _ = transcription_task(mic_rx, whisper_mic, |result| {
+                            println!("📝 🎤 Microphone [{}ms] {}", result.processing_time_ms, result.text);
+                            if result.chunks_stats.received % 20 == 0 {
+                                println!("📊 Mic Stats: received={}, speech={}, transcribed={}, level={:.1}dB", 
+                                    result.chunks_stats.received, result.chunks_stats.with_speech, 
+                                    result.chunks_stats.transcribed, result.audio_level_db);
+                            }
+                        }) => {
                             eprintln!("Mic transcription task completed");
                         }
                         _ = cancel_mic.cancelled() => {
@@ -198,7 +205,14 @@ impl AudioRecorder {
                 let rt = tokio::runtime::Handle::current();
                 rt.block_on(async move {
                     tokio::select! {
-                        _ = transcription_task(speaker_rx, whisper_speaker, "🔊 Speaker") => {
+                        _ = transcription_task(speaker_rx, whisper_speaker, |result| {
+                            println!("📝 🔊 Speaker [{}ms] {}", result.processing_time_ms, result.text);
+                            if result.chunks_stats.received % 20 == 0 {
+                                println!("📊 Speaker Stats: received={}, speech={}, transcribed={}, level={:.1}dB", 
+                                    result.chunks_stats.received, result.chunks_stats.with_speech, 
+                                    result.chunks_stats.transcribed, result.audio_level_db);
+                            }
+                        }) => {
                             eprintln!("Speaker transcription task completed");
                         }
                         _ = cancel_speaker.cancelled() => {
