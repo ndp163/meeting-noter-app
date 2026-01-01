@@ -15,7 +15,10 @@ pub fn mixer(
         sample_format: hound::SampleFormat::Int,
     };
 
-    let mut writer = hound::WavWriter::create("mixed.wav", spec).unwrap();
+    // Save to /tmp to avoid triggering Tauri dev watcher
+    let output_path = "/tmp/noter_mixed.wav";
+    let mut writer = hound::WavWriter::create(output_path, spec).unwrap();
+    eprintln!("Recording to: {}", output_path);
 
     // Pre-allocate buffers with reasonable capacity
     const BUFFER_CAPACITY: usize = 48000; // 1 second at 48kHz
@@ -28,9 +31,14 @@ pub fn mixer(
     eprintln!("Mixer started for WAV recording at {}Hz...", sample_rate);
 
     loop {
-        match rx.recv().unwrap() {
-            AudioSource::Mic(data) => mic_buf.extend(data),
-            AudioSource::System(data) => sys_buf.extend(data),
+        match rx.recv() {
+            Ok(AudioSource::Mic(data)) => mic_buf.extend(data),
+            Ok(AudioSource::System(data)) => sys_buf.extend(data),
+            Err(_) => {
+                // Channel closed, flush remaining data and exit
+                eprintln!("Audio channel closed, flushing mixer...");
+                break;
+            }
         }
 
         let len = mic_buf.len().min(sys_buf.len());
@@ -48,4 +56,16 @@ pub fn mixer(
         mic_buf.drain(..len);
         sys_buf.drain(..len);
     }
+
+    // Flush remaining samples
+    let len = mic_buf.len().min(sys_buf.len());
+    for i in 0..len {
+        let mixed = mic_buf[i] * mic_gain + sys_buf[i] * sys_gain;
+        let s = (mixed.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+        writer.write_sample(s).unwrap();
+    }
+
+    // Finalize WAV file
+    writer.finalize().unwrap();
+    eprintln!("Mixer completed, WAV file written to {}", output_path);
 }

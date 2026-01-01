@@ -14,6 +14,7 @@ fn main() {
 #[cfg(target_os = "macos")]
 fn build_swift_bridge() {
     println!("cargo:rerun-if-changed=src/swift/WhisperKit.swift");
+    println!("cargo:rerun-if-changed=src/swift/FluidAudio.swift");
     println!("cargo:rerun-if-changed=src/swift/WhisperKit-Bridging-Header.h");
     
     // Use the library built by Swift Package Manager

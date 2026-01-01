@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "Building WhisperKit Swift Bridge..."
+echo "Building Swift Transcription Bridges (WhisperKit + FluidAudio)..."
 
 # Navigate to src-tauri directory
 cd "$(dirname "$0")"
@@ -16,7 +16,7 @@ if command -v swift &> /dev/null; then
     if [ -f "$BUILD_DIR/libWhisperKitBridge.dylib" ]; then
         mkdir -p lib
         cp "$BUILD_DIR/libWhisperKitBridge.dylib" lib/
-        echo "✓ Swift bridge built successfully"
+        echo "✓ Swift bridges (WhisperKit + FluidAudio) built successfully"
     else
         echo "⚠️  Warning: Swift library not found at expected location"
     fi

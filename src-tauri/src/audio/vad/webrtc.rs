@@ -120,3 +120,4 @@ mod tests {
         assert!(vad.has_speech(&vec![0i16; 100]).is_err());
     }
 }
+ 
