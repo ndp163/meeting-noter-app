@@ -1,10 +1,26 @@
 // Configuration for audio recording and transcription
 //
 // Provides AudioConfig with builder pattern for configuring:
-// - WhisperKit model selection
+// - Transcription engine selection (WhisperKit or FluidAudio)
+// - Model selection
 // - Transcription chunk size
 // - Initialization timeout
 // - Channel buffer sizes
+
+/// Transcription engine type
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EngineType {
+    /// WhisperKit by Argmax (CoreML-based)
+    WhisperKit,
+    /// FluidAudio with Parakeet models (faster, more accurate)
+    FluidAudio,
+}
+
+impl Default for EngineType {
+    fn default() -> Self {
+        Self::FluidAudio // Default to FluidAudio as it's faster
+    }
+}
 
 /// Configuration for the audio recording system
 #[derive(Debug, Clone)]
@@ -12,18 +28,22 @@
 /// # Example
 ///
 /// ```rust
-/// use noter_lib::AudioConfig;
+/// use noter_lib::{AudioConfig, EngineType};
 ///
 /// let config = AudioConfig::default()
+///     .with_engine(EngineType::FluidAudio)
 ///     .with_model("small.en")
 ///     .with_chunk_size(160000)
 ///     .with_timeout(60);
 /// ```
 pub struct AudioConfig {
-    /// WhisperKit model to use for transcription
-    pub whisper_model: String,
+    /// Transcription engine to use
+    pub engine: EngineType,
     
-    /// Maximum time to wait for WhisperKit initialization (seconds)
+    /// Model to use for transcription (path or name)
+    pub model: String,
+    
+    /// Maximum time to wait for engine initialization (seconds)
     pub init_timeout_secs: u64,
     
     /// Buffer size for audio processing
@@ -39,22 +59,27 @@ pub struct AudioConfig {
 impl Default for AudioConfig {
     fn default() -> Self {
         Self {
-            whisper_model: "small.en".to_string(),
+            engine: EngineType::FluidAudio,
+            model: "medium.en".to_string(),
             init_timeout_secs: 120,
             buffer_size: 1024,
-            transcription_chunk_size: 80000, // ~5s at 16kHz
+            transcription_chunk_size: 96000, // ~6s at 16kHz (ensure enough data for FluidAudio)
             channel_buffer_size: 5, // Max 5 chunks in queue
         }
     }
 }
 
 impl AudioConfig {
+    /// Create a new config with custom engine
+    pub fn with_engine(mut self, engine: EngineType) -> Self {
+        self.engine = engine;
+        self
+    }
+    
     /// Create a new config with custom model
-    pub fn with_model(model: impl Into<String>) -> Self {
-        Self {
-            whisper_model: model.into(),
-            ..Default::default()
-        }
+    pub fn with_model(mut self, model: impl Into<String>) -> Self {
+        self.model = model.into();
+        self
     }
     
     /// Set transcription chunk size
@@ -69,3 +94,4 @@ impl AudioConfig {
         self
     }
 }
+

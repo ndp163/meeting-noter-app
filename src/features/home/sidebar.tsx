@@ -1,4 +1,4 @@
-import { Mic } from "lucide-react";
+import { Mic, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Meeting {
@@ -11,15 +11,19 @@ interface Meeting {
 interface SidebarProps {
   meetings: Meeting[];
   onMeetingSelect: (id: string) => void;
-  onStartCapture: () => void;
+  onToggleCapture: () => void;
   activeMeetingId?: string;
+  isCapturing: boolean;
+  isCaptureBusy?: boolean;
 }
 
 export const Sidebar = ({
   meetings,
   onMeetingSelect,
-  onStartCapture,
+  onToggleCapture,
   activeMeetingId,
+  isCapturing,
+  isCaptureBusy,
 }: SidebarProps) => {
   return (
     <div className="flex flex-col gap-2.5 w-full max-w-[411px] h-screen px-2.5 py-5">
@@ -32,10 +36,24 @@ export const Sidebar = ({
 
       {/* Start Capture Button */}
       <button
-        onClick={onStartCapture}
-        className="flex items-center justify-center h-[77px] px-[166px] py-[23px] border-2 border-dashed border-custom-red rounded-[10px] hover:bg-custom-red/5 transition-colors"
+        onClick={onToggleCapture}
+        disabled={isCaptureBusy}
+        className={cn(
+          "flex flex-col gap-1 items-center justify-center h-[77px] p-4 border-2 border-dashed rounded-[10px] transition-colors",
+          isCapturing
+            ? "bg-custom-red text-white border-custom-red"
+            : "border-custom-red text-custom-red hover:bg-custom-red/5",
+          isCaptureBusy && "opacity-50 cursor-not-allowed"
+        )}
       >
-        <Mic className="w-10 h-10 text-custom-red" />
+        {isCapturing ? (
+          <Square className="w-6 h-6" />
+        ) : (
+          <Mic className="w-6 h-6" />
+        )}
+        <span className="text-sm font-medium">
+          {isCapturing ? "Stop Capture" : "Start Capture"}
+        </span>
       </button>
 
       {/* Meetings List */}

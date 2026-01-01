@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
-use crate::bridges::whisperkit::WhisperKit;
+use crate::bridges::TranscriptionEngine;
 use crate::audio::vad::WebRtcVAD;
 use crate::audio::processing::{resample_to_16khz_fast, filter_non_speech};
+use serde::Serialize;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TranscriptionResult {
     pub text: String,
     pub raw_text: String,
@@ -15,7 +16,7 @@ pub struct TranscriptionResult {
     pub chunks_stats: ChunksStats,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ChunksStats {
     pub received: usize,
     pub with_speech: usize,
@@ -24,13 +25,17 @@ pub struct ChunksStats {
 
 /// Process audio chunks for transcription with VAD filtering
 /// Returns results through a callback function
-pub async fn transcription_task<F>(
+/// Now supports any TranscriptionEngine (WhisperKit or FluidAudio)
+pub async fn transcription_task<F, E>(
     rx: crossbeam_channel::Receiver<Vec<f32>>,
-    whisper: Arc<WhisperKit>,
-    mut on_result: F,
+    engine: Arc<E>,
+    on_result: F,
 ) where
-    F: FnMut(TranscriptionResult) + Send,
+    F: Fn(TranscriptionResult) + Send + Sync + 'static,
+    E: TranscriptionEngine + 'static,
 {
+    // Wrap callback in Arc for sharing across tasks
+    let on_result = Arc::new(on_result);
     // Initialize WebRTC VAD
     let mut vad = match WebRtcVAD::new() {
         Ok(v) => v,
@@ -43,11 +48,26 @@ pub async fn transcription_task<F>(
     let mut chunks_with_speech = 0;
     let mut chunks_transcribed = 0;
     
+    // Buffer to accumulate speech audio - ultra-fast streaming like RealTimeMicTest
+    let mut speech_buffer: Vec<f32> = Vec::new();
+    let mut last_was_speech = false;
+    const MIN_SPEECH_SAMPLES: usize = 16000 / 4; // 0.25s minimum for responsiveness
+    const STREAMING_CHUNK_SIZE: usize = 16000 / 2; // 0.5s chunks for ultra-fast updates
+    const MAX_BUFFER_SIZE: usize = 16000 * 15; // 15s max to avoid overflow
+    const CONTEXT_SAMPLES: usize = 16000 / 2; // 0.5s context after clearing
+    
+    // Track concurrent transcriptions for better real-time performance
+    let active_transcriptions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    const MAX_CONCURRENT: usize = 3; // Allow 3 parallel transcriptions
+    
     loop {
         match rx.try_recv() {
             Ok(audio_data) => {
                 chunks_received += 1;
-                let start_time = std::time::Instant::now();
+                
+                if chunks_received % 10 == 0 {
+                    eprintln!("📦 Transcription: received {} chunks", chunks_received);
+                }
                 
                 // Calculate audio statistics
                 let rms = (audio_data.iter().map(|x| x * x).sum::<f32>() / audio_data.len() as f32).sqrt();
@@ -74,45 +94,168 @@ pub async fn transcription_task<F>(
                 // VAD check
                 let vad_result = vad.analyze(&audio_i16);
                 
-                // Check for speech - lower threshold for testing
-                let has_speech = vad_result.has_speech || (vad_result.confidence > 0.3 || db > -40.0);
+                // Speech detection with real-time streaming strategy
+                let is_strong_voice = vad_result.confidence > 0.35 || db > -35.0;
+                let has_voice = vad_result.has_speech || vad_result.confidence > 0.25 || db > -40.0;
                 
-                if !has_speech {
-                    continue;
-                }
-                
-                chunks_with_speech += 1;
-                
-                // Transcribe
-                let duration_sec = normalized.len() as f32 / 16000.0;
-                match whisper.transcribe_stream(&normalized).await {
-                    Ok(ref text) => {
-                        chunks_transcribed += 1;
-                        let cleaned = filter_non_speech(text);
+                if has_voice {
+                    // Any voice - add to buffer
+                    chunks_with_speech += 1;
+                    last_was_speech = true;
+                    speech_buffer.extend_from_slice(&normalized);
+                    
+                    // Prevent buffer overflow
+                    if speech_buffer.len() > MAX_BUFFER_SIZE {
+                        eprintln!("⚠️  Buffer overflow - trimming to 15s");
+                        speech_buffer = speech_buffer[speech_buffer.len() - MAX_BUFFER_SIZE..].to_vec();
+                    }
+                    
+                    if chunks_with_speech % 5 == 1 {
+                        eprintln!("🗣️  Speech! buffer={} samples ({:.2}s), strong={}", 
+                            speech_buffer.len(), speech_buffer.len() as f32 / 16000.0, is_strong_voice);
+                    }
+                    
+                    // Real-time streaming: transcribe quickly on strong voice
+                    let current_active = active_transcriptions.load(std::sync::atomic::Ordering::Relaxed);
+                    if is_strong_voice 
+                        && speech_buffer.len() >= STREAMING_CHUNK_SIZE 
+                        && current_active < MAX_CONCURRENT 
+                    {
+                        // Validate buffer meets FluidAudio requirement (1s minimum)
+                        const FLUID_AUDIO_MIN: usize = 16000; // FluidAudio requires at least 1s
                         
-                        if !cleaned.trim().is_empty() {
-                            let processing_ms = start_time.elapsed().as_millis();
+                        if speech_buffer.len() >= FLUID_AUDIO_MIN {
+                            // Buffer is valid - proceed with transcription
+                            let buffer_copy = speech_buffer.clone();
+                            let duration_sec = buffer_copy.len() as f32 / 16000.0;
                             
-                            let result = TranscriptionResult {
-                                text: cleaned.clone(),
-                                raw_text: text.clone(),
-                                confidence: vad_result.confidence,
-                                duration_sec,
-                                processing_time_ms: processing_ms,
-                                audio_level_db: db,
-                                chunks_stats: ChunksStats {
-                                    received: chunks_received,
-                                    with_speech: chunks_with_speech,
-                                    transcribed: chunks_transcribed,
-                                },
-                            };
+                            eprintln!("🚀 Launching transcription: {:.2}s, active={}/{}", 
+                                duration_sec, current_active, MAX_CONCURRENT);
                             
-                            on_result(result);
+                            // Spawn detached task for parallel transcription
+                            let engine_clone = engine.clone();
+                            let active_clone = active_transcriptions.clone();
+                            let callback_clone = on_result.clone();
+                            active_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            
+                            chunks_transcribed += 1;
+                            let transcribed_count = chunks_transcribed;
+                            let with_speech_count = chunks_with_speech;
+                            let received_count = chunks_received;
+                            let vad_conf = vad_result.confidence;
+                            let audio_db = db;
+                            
+                            tokio::spawn(async move {
+                                let start_time = std::time::Instant::now();
+                                
+                                match engine_clone.transcribe_stream(&buffer_copy).await {
+                                    Ok(text) => {
+                                        let processing_ms = start_time.elapsed().as_millis();
+                                        let rtfx = duration_sec / (processing_ms as f32 / 1000.0);
+                                        
+                                        let cleaned = filter_non_speech(&text);
+                                        if !cleaned.trim().is_empty() {
+                                            eprintln!("📝 {} [{}ms, {:.0}x]", 
+                                                cleaned.trim(), processing_ms, rtfx);
+                                            
+                                            // Send result via callback
+                                            callback_clone(TranscriptionResult {
+                                                text: cleaned.clone(),
+                                                raw_text: text.clone(),
+                                                confidence: vad_conf,
+                                                duration_sec,
+                                                processing_time_ms: processing_ms,
+                                                audio_level_db: audio_db,
+                                                chunks_stats: ChunksStats {
+                                                    received: received_count,
+                                                    with_speech: with_speech_count,
+                                                    transcribed: transcribed_count,
+                                                },
+                                            });
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("❌ Transcription error: {:?}", e);
+                                    }
+                                }
+                                
+                                active_clone.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                            });
+                            
+                            // Clear buffer after launching transcription to avoid duplicates
+                            // Keep context for next transcription
+                            if speech_buffer.len() > CONTEXT_SAMPLES {
+                                speech_buffer = speech_buffer[speech_buffer.len() - CONTEXT_SAMPLES..].to_vec();
+                                eprintln!("🔄 Buffer cleared, kept {:.2}s context", CONTEXT_SAMPLES as f32 / 16000.0);
+                            }
+                        } else {
+                            // Buffer too short (< 1s) - keep accumulating for next time
+                            eprintln!("⏳ Buffer too short ({:.2}s), accumulating for next transcription...", 
+                                speech_buffer.len() as f32 / 16000.0);
+                            // Don't clear buffer - let it continue accumulating
                         }
                     }
-                    Err(_e) => {
-                        // Silently continue on error
+                } else if last_was_speech && !speech_buffer.is_empty() {
+                    // Just finished speech, add silence for context then transcribe final
+                    speech_buffer.extend_from_slice(&normalized);
+                    last_was_speech = false;
+                    
+                    // Final transcription when speech ends
+                    if speech_buffer.len() >= MIN_SPEECH_SAMPLES {
+                        let buffer_copy = speech_buffer.clone();
+                        let duration_sec = buffer_copy.len() as f32 / 16000.0;
+                        
+                        eprintln!("🎯 Final transcription: {:.2}s", duration_sec);
+                        
+                        let engine_clone = engine.clone();
+                        let active_clone = active_transcriptions.clone();
+                        let callback_clone = on_result.clone();
+                        active_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        
+                        chunks_transcribed += 1;
+                        let transcribed_count = chunks_transcribed;
+                        let with_speech_count = chunks_with_speech;
+                        let received_count = chunks_received;
+                        let vad_conf = vad_result.confidence;
+                        let audio_db = db;
+                        
+                        tokio::spawn(async move {
+                            let start_time = std::time::Instant::now();
+                            
+                            match engine_clone.transcribe_stream(&buffer_copy).await {
+                                Ok(text) => {
+                                    let processing_ms = start_time.elapsed().as_millis();
+                                    let cleaned = filter_non_speech(&text);
+                                    if !cleaned.trim().is_empty() {
+                                        eprintln!("✅ Final: {} [{}ms]", cleaned.trim(), processing_ms);
+                                        
+                                        // Send final result via callback
+                                        callback_clone(TranscriptionResult {
+                                            text: cleaned.clone(),
+                                            raw_text: text.clone(),
+                                            confidence: vad_conf,
+                                            duration_sec,
+                                            processing_time_ms: processing_ms,
+                                            audio_level_db: audio_db,
+                                            chunks_stats: ChunksStats {
+                                                received: received_count,
+                                                with_speech: with_speech_count,
+                                                transcribed: transcribed_count,
+                                            },
+                                        });
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("❌ Final transcription error: {:?}", e);
+                                }
+                            }
+                            
+                            active_clone.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                        });
                     }
+                    
+                    // Clear buffer after final transcription
+                    speech_buffer.clear();
                 }
             }
             Err(crossbeam_channel::TryRecvError::Empty) => {
