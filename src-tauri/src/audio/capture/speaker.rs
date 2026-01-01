@@ -111,7 +111,7 @@ impl Speaker {
         }));
         let current_sample_rate = Arc::new(AtomicU32::new(asbd.sample_rate as u32));
         let has_data = Arc::new(AtomicBool::new(false));
-        info!(init = asbd.sample_rate, buffer_size, "speaker_stream_initialized");
+        eprintln!("🔊 Building speaker stream (sample_rate: {}, buffer_size: {})", asbd.sample_rate, buffer_size);
         let mut ctx = Box::new(AudioContext {
             format,
             producer,
@@ -152,7 +152,7 @@ impl Speaker {
             let before = ctx.current_sample_rate.load(Ordering::Acquire);
             if before != after {
                 ctx.current_sample_rate.store(after, Ordering::Release);
-                tracing::info!(before = before, after = after, "sample_rate",);
+                eprintln!("🔄 Sample rate changed: {} -> {}", before, after);
             }
             if let Some(view) =
                 av::AudioPcmBuf::with_buf_list_no_copy(&ctx.format, input_data, None)
@@ -245,7 +245,7 @@ impl Speaker {
         let pushed = ctx.producer.push_slice(data);
         if pushed < data.len() {
             let dropped = data.len() - pushed;
-            tracing::warn!(dropped, total = data.len(), "speaker_samples_dropped");
+            eprintln!("⚠️  Speaker samples dropped: {} / {}", dropped, data.len());
         }
         if pushed > 0 {
             let was_empty = !ctx.has_data.swap(true, Ordering::AcqRel);

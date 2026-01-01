@@ -25,6 +25,8 @@ export interface TranscriptionEventPayload {
   audio_level_db: number;
   stats: TranscriptionStatsPayload;
   received_at_ms: number;
+  is_final: boolean; // True for final results, false for partial/streaming
+  sentence_final: boolean; // True when sentence is complete (start new message)
 }
 
 export const startTranscription = async () => {

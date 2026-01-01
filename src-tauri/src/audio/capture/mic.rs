@@ -91,6 +91,8 @@ impl Mic {
     }
 
     pub fn stream(self) -> Result<MicStream> {
+        eprintln!("📍 Mic::stream() called - starting stream creation");
+        
         let buffer_size = CHUNK_SIZE * RING_BUFFER_MULTIPLIER;
         let rb = HeapRb::<f32>::new(buffer_size);
         let (producer, consumer) = rb.split();
@@ -102,7 +104,7 @@ impl Mic {
         let has_data = Arc::new(AtomicBool::new(false));
         let sample_rate = self.config.sample_rate;
         
-        tracing::info!(sample_rate, buffer_size, "mic_stream_initialized");
+        eprintln!("🎙️  Building mic stream (sample_rate: {}, buffer_size: {})", sample_rate, buffer_size);
 
         let ctx = Arc::new(Mutex::new(Ctx {
             producer,
@@ -111,19 +113,38 @@ impl Mic {
         }));
 
         let ctx_clone = ctx.clone();
-        let stream = self.device.build_input_stream(
+        eprintln!("🔧 Calling build_input_stream...");
+        
+        // CRITICAL: Check if build_input_stream can fail silently
+        // Try without panic handler first to see actual error
+        let stream = match self.device.build_input_stream(
             &self.config,
             move |data: &[f32], _| {
-                let mut ctx = ctx_clone.lock().unwrap();
-                Self::process_audio_data(&mut ctx, data);
+                if let Ok(mut ctx) = ctx_clone.lock() {
+                    Self::process_audio_data(&mut ctx, data);
+                }
             },
             |err| {
-                tracing::error!("mic stream error: {}", err);
+                eprintln!("❌ Mic stream error callback: {}", err);
             },
             None,
-        )?;
-
-        stream.play()?;
+        ) {
+            Ok(s) => {
+                eprintln!("✅ build_input_stream success");
+                s
+            }
+            Err(e) => {
+                eprintln!("❌ build_input_stream failed: {}", e);
+                return Err(anyhow::anyhow!("Failed to build input stream: {}", e));
+            }
+        };
+        
+        eprintln!("🔧 Calling stream.play()...");
+        stream.play().map_err(|e| {
+            eprintln!("❌ stream.play() failed: {}", e);
+            anyhow::anyhow!("Failed to play stream: {}", e)
+        })?;
+        eprintln!("✅ Mic stream playing");
 
         Ok(MicStream {
             consumer,
@@ -140,7 +161,7 @@ impl Mic {
         
         if pushed < data.len() {
             let dropped = data.len() - pushed;
-            tracing::warn!(dropped, total = data.len(), "mic_samples_dropped");
+            eprintln!("⚠️  Mic samples dropped: {} / {}", dropped, data.len());
         }
         
         if pushed > 0 {

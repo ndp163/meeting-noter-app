@@ -1,5 +1,6 @@
 pub mod constants;
 mod task;
+mod task_vad_batch;
 
-pub use constants::{TRANSCRIPTION_CHUNK_SIZE, MIN_SPEECH_DURATION};
 pub use task::{transcription_task, TranscriptionResult, ChunksStats};
+pub use task_vad_batch::vad_batch_transcription_task;

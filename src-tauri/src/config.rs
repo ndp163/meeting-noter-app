@@ -63,8 +63,8 @@ impl Default for AudioConfig {
             model: "medium.en".to_string(),
             init_timeout_secs: 120,
             buffer_size: 1024,
-            transcription_chunk_size: 96000, // ~6s at 16kHz (ensure enough data for FluidAudio)
-            channel_buffer_size: 5, // Max 5 chunks in queue
+            transcription_chunk_size: 8000, // 0.5s at 16kHz - matches RealTimeMicTest
+            channel_buffer_size: 30, // Large buffer for VAD-batch mode
         }
     }
 }

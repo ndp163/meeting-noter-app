@@ -20,6 +20,16 @@ extern "C" {
         context: *mut c_void,
     );
     fn fluid_audio_shutdown();
+    
+    // VAD functions
+    fn fluid_audio_vad_create_state(stream_id: *const c_char) -> bool;
+    fn fluid_audio_vad_process(
+        stream_id: *const c_char,
+        audio_data: *const u8,
+        data_len: usize,
+        out_probability: *mut f32,
+    ) -> bool;
+    fn fluid_audio_vad_destroy_state(stream_id: *const c_char);
 }
 
 /// Thread-safe FluidAudio FFI wrapper
@@ -162,6 +172,64 @@ impl FluidAudio {
 
     pub fn is_initialized(&self) -> bool {
         self.initialized.load(Ordering::Acquire)
+    }
+    
+    /// Process audio chunk with VAD and return voice probability
+    pub fn vad_process(&self, stream_id: &str, audio_data: &[f32]) -> Result<f32, String> {
+        if !self.is_initialized() {
+            return Err("FluidAudio not initialized".to_string());
+        }
+        
+        let stream_id_c = CString::new(stream_id)
+            .map_err(|e| format!("Invalid stream ID: {}", e))?;
+        
+        // Convert f32 to bytes
+        let byte_data: Vec<u8> = audio_data
+            .iter()
+            .flat_map(|&f| f.to_le_bytes())
+            .collect();
+        
+        let mut probability: f32 = 0.0;
+        
+        let success = unsafe {
+            fluid_audio_vad_process(
+                stream_id_c.as_ptr(),
+                byte_data.as_ptr(),
+                byte_data.len(),
+                &mut probability as *mut f32,
+            )
+        };
+        
+        if success {
+            Ok(probability)
+        } else {
+            Err("VAD processing failed".to_string())
+        }
+    }
+    
+    /// Create VAD state for a stream
+    pub fn vad_create_state(&self, stream_id: &str) -> Result<(), String> {
+        let stream_id_c = CString::new(stream_id)
+            .map_err(|e| format!("Invalid stream ID: {}", e))?;
+        
+        let success = unsafe {
+            fluid_audio_vad_create_state(stream_id_c.as_ptr())
+        };
+        
+        if success {
+            Ok(())
+        } else {
+            Err("Failed to create VAD state".to_string())
+        }
+    }
+    
+    /// Destroy VAD state for a stream
+    pub fn vad_destroy_state(&self, stream_id: &str) {
+        if let Ok(stream_id_c) = CString::new(stream_id) {
+            unsafe {
+                fluid_audio_vad_destroy_state(stream_id_c.as_ptr());
+            }
+        }
     }
 }
 

@@ -20,6 +20,9 @@ interface TranscriptMessage {
   isUser: boolean;
   source?: string;
   receivedAt?: number; // Add this to track actual timestamp
+  isFinal?: boolean; // Track if batch is finalized
+  sentenceFinal?: boolean; // Track if sentence is complete
+  committedContent?: string; // Content that was committed via batch final (8s)
 }
 
 export const HomePage = () => {
@@ -72,9 +75,71 @@ export const HomePage = () => {
         "Event received:",
         payload.text,
         "at",
-        payload.received_at_ms
+        payload.received_at_ms,
+        "is_final:",
+        payload.is_final,
+        "sentence_final:",
+        payload.sentence_final
       );
-      setMessages((prev) => [...prev, mapPayloadToMessage(payload)]);
+
+      setMessages((prev) => {
+        // Find the last message from the SAME source
+        let lastIndexOfSource = -1;
+        for (let i = prev.length - 1; i >= 0; i--) {
+          if (prev[i].source === payload.source) {
+            lastIndexOfSource = i;
+            break;
+          }
+        }
+
+        const lastMessageOfSource =
+          lastIndexOfSource >= 0 ? prev[lastIndexOfSource] : null;
+
+        // If sentence was finalized (sentence_final=true), always create new message
+        if (lastMessageOfSource?.sentenceFinal) {
+          return [...prev, mapPayloadToMessage(payload)];
+        }
+
+        // Update existing message if: found message from same source AND not sentence-finalized yet
+        if (lastMessageOfSource && !lastMessageOfSource.sentenceFinal) {
+          const updated = [...prev];
+          const currentMsg = updated[lastIndexOfSource];
+
+          // Determine new content based on is_final and committedContent
+          let newContent: string;
+          let newCommittedContent: string | undefined;
+
+          if (payload.is_final && !payload.sentence_final) {
+            // Batch final (8s) - append new text to committed content
+            const committed = currentMsg.committedContent || "";
+            newCommittedContent = committed
+              ? `${committed} ${payload.text}`
+              : payload.text;
+            newContent = newCommittedContent;
+          } else if (currentMsg.committedContent) {
+            // Streaming update AFTER batch final - append to committed content
+            newContent = `${currentMsg.committedContent} ${payload.text}`;
+            newCommittedContent = currentMsg.committedContent; // Keep committed
+          } else {
+            // Streaming update before any batch final - just replace
+            newContent = payload.text;
+            newCommittedContent = undefined;
+          }
+
+          updated[lastIndexOfSource] = {
+            ...currentMsg,
+            content: newContent,
+            receivedAt: payload.received_at_ms,
+            isFinal: payload.is_final,
+            sentenceFinal: payload.sentence_final,
+            committedContent: newCommittedContent,
+          };
+          return updated;
+        }
+
+        // Create new message (no previous from this source, or last was sentence-finalized)
+        return [...prev, mapPayloadToMessage(payload)];
+      });
     })
       .then((release) => {
         console.log("Transcription listener registered");
@@ -227,6 +292,8 @@ const mapPayloadToMessage = (
     isUser: payload.source === "mic",
     receivedAt: payload.received_at_ms,
     source: payload.source,
+    isFinal: payload.is_final,
+    sentenceFinal: payload.sentence_final,
   };
 };
 

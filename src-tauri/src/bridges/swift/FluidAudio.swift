@@ -4,11 +4,22 @@ import FluidAudio
 // C callback type for Rust FFI
 public typealias FluidAudioCallback = @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafeMutableRawPointer?) -> Void
 
+// Helper function to convert Data to Float array
+func audioDataToFloatArray(_ data: Data) -> [Float] {
+    let count = data.count / MemoryLayout<Float>.size
+    var array = [Float](repeating: 0, count: count)
+    _ = array.withUnsafeMutableBytes { data.copyBytes(to: $0) }
+    return array
+}
+
 @objc public class FluidAudioBridge: NSObject {
-    private var vadManager: VadManager?
+    var vadManager: VadManager?
     private var asrManager: AsrManager?
     private var models: AsrModels?
     private let modelVersion: AsrModelVersion = .v2 // English-only, faster
+    
+    // VAD state tracking
+    var vadStates: [String: VadStreamState] = [:] // Key = stream ID
     
     @objc public static let shared = FluidAudioBridge()
     
@@ -210,4 +221,104 @@ public func fluid_audio_transcribe_stream(
 @_cdecl("fluid_audio_shutdown")
 public func fluid_audio_shutdown() {
     FluidAudioBridge.shared.shutdown()
+}
+
+// MARK: - VAD Functions
+
+@_cdecl("fluid_audio_vad_create_state")
+public func fluid_audio_vad_create_state(streamId: UnsafePointer<CChar>?) -> Bool {
+    guard let streamId = streamId else { return false }
+    let id = String(cString: streamId)
+    
+    let bridge = FluidAudioBridge.shared
+    guard let vadManager = bridge.vadManager else {
+        print("Swift FluidAudio: VAD not initialized")
+        return false
+    }
+    
+    // Use DispatchGroup to wait for async state creation
+    let group = DispatchGroup()
+    var success = false
+    
+    group.enter()
+    Task.detached(priority: .userInitiated) {
+        let state = await vadManager.makeStreamState()
+        bridge.vadStates[id] = state
+        success = true
+        group.leave()
+    }
+    
+    // Wait for state creation (with timeout)
+    let result = group.wait(timeout: .now() + 5.0)
+    if result == .timedOut {
+        print("Swift FluidAudio: VAD state creation timeout for \(id)")
+        return false
+    }
+    
+    return success
+}
+
+@_cdecl("fluid_audio_vad_process")
+public func fluid_audio_vad_process(
+    streamId: UnsafePointer<CChar>?,
+    audioData: UnsafePointer<UInt8>?,
+    dataLen: Int,
+    outProbability: UnsafeMutablePointer<Float>?
+) -> Bool {
+    guard let streamId = streamId, let audioData = audioData, let outProbability = outProbability else {
+        return false
+    }
+    
+    let id = String(cString: streamId)
+    let bridge = FluidAudioBridge.shared
+    
+    guard let vadManager = bridge.vadManager, var vadState = bridge.vadStates[id] else {
+        print("Swift FluidAudio: VAD state not found for \(id)")
+        return false
+    }
+    
+    let data = Data(bytes: audioData, count: dataLen)
+    let audioArray = audioDataToFloatArray(data)
+    
+    // Use DispatchGroup instead of semaphore to avoid deadlock
+    let group = DispatchGroup()
+    var probability: Float = 0.0
+    var success = false
+    
+    group.enter()
+    Task.detached(priority: .userInitiated) {
+        do {
+            let result = try await vadManager.processStreamingChunk(
+                audioArray,
+                state: vadState,
+                returnSeconds: true,
+                timeResolution: 2
+            )
+            
+            vadState = result.state
+            bridge.vadStates[id] = vadState
+            probability = result.probability
+            success = true
+        } catch {
+            print("Swift FluidAudio: VAD processing error: \(error)")
+        }
+        group.leave()
+    }
+    
+    // Wait with timeout to prevent infinite blocking
+    let result = group.wait(timeout: .now() + 5.0)
+    if result == .timedOut {
+        print("Swift FluidAudio: VAD processing timeout for \(id)")
+        return false
+    }
+    
+    outProbability.pointee = probability
+    return success
+}
+
+@_cdecl("fluid_audio_vad_destroy_state")
+public func fluid_audio_vad_destroy_state(streamId: UnsafePointer<CChar>?) {
+    guard let streamId = streamId else { return }
+    let id = String(cString: streamId)
+    FluidAudioBridge.shared.vadStates.removeValue(forKey: id)
 }

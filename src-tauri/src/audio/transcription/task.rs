@@ -14,6 +14,8 @@ pub struct TranscriptionResult {
     pub processing_time_ms: u128,
     pub audio_level_db: f32,
     pub chunks_stats: ChunksStats,
+    pub is_final: bool, // True when transcription batch is finalized (buffer cleared)
+    pub sentence_final: bool, // True when sentence is complete (start new message)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -171,6 +173,8 @@ pub async fn transcription_task<F, E>(
                                                     with_speech: with_speech_count,
                                                     transcribed: transcribed_count,
                                                 },
+                                                is_final: true, // All results are final in batch mode
+                                                sentence_final: true, // Each transcription is a complete sentence
                                             });
                                         }
                                     }
@@ -242,6 +246,8 @@ pub async fn transcription_task<F, E>(
                                                 with_speech: with_speech_count,
                                                 transcribed: transcribed_count,
                                             },
+                                            is_final: true, // Final result
+                                            sentence_final: true, // Complete sentence
                                         });
                                     }
                                 }

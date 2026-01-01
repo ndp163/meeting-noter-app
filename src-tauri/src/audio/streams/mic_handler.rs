@@ -40,7 +40,17 @@ impl MicStreamHandler {
         mixer_tx: Sender<AudioSource>,
         cancel: CancellationToken,
     ) -> Result<()> {
-        let mut stream = self.mic.stream()?;
+        eprintln!("🎬 Creating mic stream...");
+        let stream_result = self.mic.stream();
+        
+        if let Err(e) = &stream_result {
+            eprintln!("❌ Failed to create mic stream: {}", e);
+            eprintln!("❌ Error debug: {:?}", e);
+            return Err(anyhow::anyhow!("Mic stream creation failed: {}", e));
+        }
+        
+        let mut stream = stream_result?;
+        eprintln!("✅ Mic stream created successfully");
         
         // Pre-allocate buffer to avoid reallocations
         let mut buffer = Vec::with_capacity(self.chunk_size);

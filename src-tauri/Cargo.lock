@@ -2197,6 +2197,7 @@ dependencies = [
  "futures-util",
  "hound",
  "libc",
+ "rand 0.8.5",
  "regex",
  "ringbuf",
  "serde",

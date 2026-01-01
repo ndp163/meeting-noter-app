@@ -70,7 +70,7 @@ class LiveTranscriber {
         // Initialize ASR with optimized config
         print("   ⏳ Loading Parakeet v2 model...")
         let models = try await AsrModels.downloadAndLoad(version: .v2)
-        
+
         // Use default config which is optimized for the model
         // Config already optimized with centerSeconds: 11.2, leftContext: 1.6, rightContext: 1.6
         self.asrManager = AsrManager(config: .default)
