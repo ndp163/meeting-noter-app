@@ -11,6 +11,7 @@ struct StreamingTranscribeTest {
         
         // Get audio file path from command line
         let args = CommandLine.arguments
+        print(args)
         guard args.count > 1 else {
             print("Usage: swift run StreamingTranscribeTest <audio-file-path> [--model-version v2|v3]")
             print("Example: swift run StreamingTranscribeTest ~/audio/meeting.wav --model-version v2")

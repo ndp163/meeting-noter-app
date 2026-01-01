@@ -40,7 +40,9 @@ impl SpeakerStreamHandler {
         mixer_tx: Sender<AudioSource>,
         cancel: CancellationToken,
     ) -> Result<()> {
+        eprintln!("🎬 Creating speaker stream...");
         let mut stream = self.speaker.stream()?;
+        eprintln!("✅ Speaker stream created successfully");
         
         // Pre-allocate buffer to avoid reallocations
         let mut buffer = Vec::with_capacity(self.chunk_size);

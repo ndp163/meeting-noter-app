@@ -1,0 +1,84 @@
+{
+  "configurations": [
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:model-test}",
+      "name": "Debug VadStreamTest",
+      "target": "VadStreamTest",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug VadStreamTest"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:model-test}",
+      "name": "Release VadStreamTest",
+      "target": "VadStreamTest",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release VadStreamTest"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:model-test}",
+      "name": "Debug StreamingTranscribeTest",
+      "target": "StreamingTranscribeTest",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug StreamingTranscribeTest"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:model-test}",
+      "name": "Release StreamingTranscribeTest",
+      "target": "StreamingTranscribeTest",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release StreamingTranscribeTest"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:model-test}",
+      "name": "Debug RealTimeMicTest",
+      "target": "RealTimeMicTest",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug RealTimeMicTest"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:model-test}",
+      "name": "Release RealTimeMicTest",
+      "target": "RealTimeMicTest",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release RealTimeMicTest"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:model-test}",
+      "name": "Debug BatchTranscribeTest",
+      "target": "BatchTranscribeTest",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug BatchTranscribeTest"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:model-test}",
+      "name": "Release BatchTranscribeTest",
+      "target": "BatchTranscribeTest",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release BatchTranscribeTest"
+    }
+  ]
+}
