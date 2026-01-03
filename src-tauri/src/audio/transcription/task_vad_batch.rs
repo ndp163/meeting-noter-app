@@ -27,7 +27,7 @@ pub async fn vad_batch_transcription_task<F>(
             .as_millis(),
         rand::random::<u32>()
     );
-    
+
     // Create VAD state
     if let Err(e) = engine.vad_create_state(&stream_id) {
         eprintln!("❌ Failed to create VAD state: {}", e);
@@ -73,20 +73,11 @@ pub async fn vad_batch_transcription_task<F>(
                 let samples = resample_to_16khz_fast(&audio_data);
                 
                 // Use FluidAudio VAD (ML-based, like RealTimeMicTest)
-                // Run in blocking task to allow parallel VAD processing
-                let engine_clone = engine.clone();
-                let stream_id_clone = stream_id.clone();
-                let samples_clone = samples.clone();
-                let probability = match tokio::task::spawn_blocking(move || {
-                    engine_clone.vad_process(&stream_id_clone, &samples_clone)
-                }).await {
-                    Ok(Ok(prob)) => prob,
-                    Ok(Err(e)) => {
-                        eprintln!("❌ VAD processing error: {}", e);
-                        continue;
-                    }
+                // VAD is fast enough to run inline
+                let probability = match engine.vad_process(&stream_id, &samples) {
+                    Ok(prob) => prob,
                     Err(e) => {
-                        eprintln!("❌ VAD task join error: {}", e);
+                        eprintln!("❌ VAD processing error: {}", e);
                         continue;
                     }
                 };
@@ -168,8 +159,8 @@ pub async fn vad_batch_transcription_task<F>(
                                                 with_speech: 0,
                                                 transcribed: 0,
                                             },
-                                            is_final: true, // Batch final - buffer cleared
-                                            sentence_final: false, // Not sentence final - frontend will append to current message
+                                            is_result_final: true, // Batch final - buffer cleared and committed
+                                            is_sentence_final: false, // User still speaking - update current message
                                         });
                                     }
                                     Ok(_) => {}
@@ -222,8 +213,8 @@ pub async fn vad_batch_transcription_task<F>(
                                                 with_speech: 0,
                                                 transcribed: 0,
                                             },
-                                            is_final: false, // Streaming update
-                                            sentence_final: false, // Frontend will update current message
+                                            is_result_final: false, // Streaming update
+                                            is_sentence_final: false, // Frontend will update current message
                                         });
                                     }
                                     Ok(_) => {}
@@ -280,8 +271,8 @@ pub async fn vad_batch_transcription_task<F>(
                                                     with_speech: 0,
                                                     transcribed: 0,
                                                 },
-                                                is_final: true, // Batch final - buffer cleared
-                                                sentence_final: true, // Sentence final - frontend creates new message
+                                                is_result_final: true, // Batch final - buffer cleared
+                                                is_sentence_final: true, // Sentence final - frontend creates new message
                                             });
                                         }
                                         Ok(_) => {}

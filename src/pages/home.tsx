@@ -76,10 +76,10 @@ export const HomePage = () => {
         payload.text,
         "at",
         payload.received_at_ms,
-        "is_final:",
-        payload.is_final,
-        "sentence_final:",
-        payload.sentence_final
+        "is_result_final:",
+        payload.is_result_final,
+        "is_sentence_final:",
+        payload.is_sentence_final
       );
 
       setMessages((prev) => {
@@ -95,7 +95,7 @@ export const HomePage = () => {
         const lastMessageOfSource =
           lastIndexOfSource >= 0 ? prev[lastIndexOfSource] : null;
 
-        // If sentence was finalized (sentence_final=true), always create new message
+        // If sentence was finalized (is_sentence_final=true), always create new message
         if (lastMessageOfSource?.sentenceFinal) {
           return [...prev, mapPayloadToMessage(payload)];
         }
@@ -105,11 +105,11 @@ export const HomePage = () => {
           const updated = [...prev];
           const currentMsg = updated[lastIndexOfSource];
 
-          // Determine new content based on is_final and committedContent
+          // Determine new content based on is_result_final and committedContent
           let newContent: string;
           let newCommittedContent: string | undefined;
 
-          if (payload.is_final && !payload.sentence_final) {
+          if (payload.is_result_final && !payload.is_sentence_final) {
             // Batch final (8s) - append new text to committed content
             const committed = currentMsg.committedContent || "";
             newCommittedContent = committed
@@ -130,8 +130,8 @@ export const HomePage = () => {
             ...currentMsg,
             content: newContent,
             receivedAt: payload.received_at_ms,
-            isFinal: payload.is_final,
-            sentenceFinal: payload.sentence_final,
+            isFinal: payload.is_result_final,
+            sentenceFinal: payload.is_sentence_final,
             committedContent: newCommittedContent,
           };
           return updated;
@@ -292,8 +292,8 @@ const mapPayloadToMessage = (
     isUser: payload.source === "mic",
     receivedAt: payload.received_at_ms,
     source: payload.source,
-    isFinal: payload.is_final,
-    sentenceFinal: payload.sentence_final,
+    isFinal: payload.is_result_final,
+    sentenceFinal: payload.is_sentence_final,
   };
 };
 

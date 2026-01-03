@@ -7,23 +7,20 @@ use crate::audio::{
     Speaker,
     processing::mixer,
     streams::{MicStreamHandler, SpeakerStreamHandler},
-    transcription::{transcription_task, vad_batch_transcription_task, TranscriptionResult},
+    transcription::{vad_batch_transcription_task, TranscriptionResult},
 };
-use crate::bridges::{WhisperKit, FluidAudio, TranscriptionEngine};
-use crate::config::{AudioConfig, EngineType};
+use crate::bridges::{FluidAudio, TranscriptionEngine};
+use crate::config::AudioConfig;
 use crate::types::AudioSource;
 use crossbeam_channel::Sender;
 
-/// Wrapper for different transcription engines
-enum Engine {
-    WhisperKit(Arc<WhisperKit>),
-    FluidAudio(Arc<FluidAudio>),
-}
+/// Wrapper for transcription engine
+type Engine = Arc<FluidAudio>;
 
 /// Manages the audio recording and transcription system
 /// 
 /// Orchestrates:
-/// - Transcription engine initialization (WhisperKit or FluidAudio)
+/// - FluidAudio transcription engine initialization
 /// - Separate mic and speaker audio streams
 /// - Mixer for WAV recording
 /// - Dual transcription pipelines (mic + speaker)
@@ -116,11 +113,7 @@ impl AudioRecorder {
         // Now we can safely await - mic/speaker have been moved and dropped
         // Initialize transcription engine (non-fatal if it fails)
         if self.engine.is_none() {
-            eprintln!("Transcription engine not initialized yet, initializing {}...", 
-                match self.config.engine {
-                    EngineType::WhisperKit => "WhisperKit",
-                    EngineType::FluidAudio => "FluidAudio",
-                });
+            eprintln!("Transcription engine not initialized yet, initializing FluidAudio...");
             if let Err(e) = self.initialize_engine().await {
                 eprintln!("⚠️  Continuing without transcription: {}", e);
             }
@@ -161,59 +154,28 @@ impl AudioRecorder {
 
     /// Initialize transcription engine with timeout
     async fn initialize_engine(&mut self) -> Result<()> {
-        match self.config.engine {
-            EngineType::WhisperKit => {
-                let whisper = Arc::new(WhisperKit::new());
-                eprintln!(
-                    "Initializing WhisperKit (model: {}) with {}s timeout...",
-                    self.config.model,
-                    self.config.init_timeout_secs
-                );
+        let fluid = Arc::new(FluidAudio::new());
+        eprintln!(
+            "Initializing FluidAudio with {}s timeout...",
+            self.config.init_timeout_secs
+        );
 
-                match tokio::time::timeout(
-                    std::time::Duration::from_secs(self.config.init_timeout_secs),
-                    whisper.initialize(Some(&self.config.model))
-                ).await {
-                    Ok(Ok(_)) => {
-                        eprintln!("✓ WhisperKit initialized successfully");
-                        self.engine = Some(Engine::WhisperKit(whisper));
-                        Ok(())
-                    }
-                    Ok(Err(e)) => {
-                        eprintln!("✗ Failed to initialize WhisperKit: {}", e);
-                        Err(anyhow::anyhow!("{}", e))
-                    }
-                    Err(_) => {
-                        eprintln!("✗ WhisperKit initialization timed out");
-                        Err(anyhow::anyhow!("Initialization timeout"))
-                    }
-                }
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(self.config.init_timeout_secs),
+            fluid.initialize(None) // FluidAudio doesn't use model path
+        ).await {
+            Ok(Ok(_)) => {
+                eprintln!("✓ FluidAudio initialized successfully");
+                self.engine = Some(fluid);
+                Ok(())
             }
-            EngineType::FluidAudio => {
-                let fluid = Arc::new(FluidAudio::new());
-                eprintln!(
-                    "Initializing FluidAudio with {}s timeout...",
-                    self.config.init_timeout_secs
-                );
-
-                match tokio::time::timeout(
-                    std::time::Duration::from_secs(self.config.init_timeout_secs),
-                    fluid.initialize(None) // FluidAudio doesn't use model path
-                ).await {
-                    Ok(Ok(_)) => {
-                        eprintln!("✓ FluidAudio initialized successfully");
-                        self.engine = Some(Engine::FluidAudio(fluid));
-                        Ok(())
-                    }
-                    Ok(Err(e)) => {
-                        eprintln!("✗ Failed to initialize FluidAudio: {}", e);
-                        Err(anyhow::anyhow!("{}", e))
-                    }
-                    Err(_) => {
-                        eprintln!("✗ FluidAudio initialization timed out");
-                        Err(anyhow::anyhow!("Initialization timeout"))
-                    }
-                }
+            Ok(Err(e)) => {
+                eprintln!("✗ Failed to initialize FluidAudio: {}", e);
+                Err(anyhow::anyhow!("{}", e))
+            }
+            Err(_) => {
+                eprintln!("✗ FluidAudio initialization timed out");
+                Err(anyhow::anyhow!("Initialization timeout"))
             }
         }
     }
@@ -261,94 +223,17 @@ impl AudioRecorder {
         events_tx: Option<Sender<TranscriptionEvent>>,
     ) {
         if let Some(ref engine) = self.engine {
-            eprintln!("🚀 Starting transcription tasks with {:?}...", 
-                match engine {
-                    Engine::WhisperKit(_) => "WhisperKit",
-                    Engine::FluidAudio(_) => "FluidAudio",
-                });
+            eprintln!("🚀 Starting transcription tasks with FluidAudio...");
             
-            // Spawn transcription tasks based on engine type
-            match engine {
-                Engine::WhisperKit(whisper) => {
-                    self.spawn_engine_tasks(whisper.clone(), mic_rx, speaker_rx, events_tx);
-                }
-                Engine::FluidAudio(fluid) => {
-                    // Use VAD-batch transcription like RealTimeMicTest
-                    self.spawn_vad_batch_tasks(fluid.clone(), mic_rx, speaker_rx, events_tx);
-                }
-            }
+            // Use VAD-batch transcription like RealTimeMicTest
+            self.spawn_vad_batch_tasks(engine.clone(), mic_rx, speaker_rx, events_tx);
         } else {
             eprintln!("⚠️  Transcription engine not initialized - transcription tasks will NOT run!");
             eprintln!("    Audio will still be recorded, but no transcription will occur.");
         }
     }
 
-    /// Generic function to spawn transcription tasks for any engine
-    fn spawn_engine_tasks<E: TranscriptionEngine + 'static>(
-        &self,
-        engine: Arc<E>,
-        mic_rx: crossbeam_channel::Receiver<Vec<f32>>,
-        speaker_rx: crossbeam_channel::Receiver<Vec<f32>>,
-        events_tx: Option<Sender<TranscriptionEvent>>,
-    ) {
-        // Mic transcription task
-        let engine_mic = engine.clone();
-        let cancel_mic = self.cancel_token.clone();
-        let mic_events = events_tx.clone();
-        tokio::task::spawn_blocking(move || {
-            let rt = tokio::runtime::Handle::current();
-            rt.block_on(async move {
-                tokio::select! {
-                    _ = transcription_task(mic_rx, engine_mic, move |result| {
-                        if let Some(tx) = mic_events.as_ref() {
-                            let _ = tx.send(TranscriptionEvent::new(TranscriptionSource::Mic, result.clone()));
-                        }
 
-                        println!("📝 🎤 Microphone [{}ms] {}", result.processing_time_ms, result.text);
-                        if result.chunks_stats.received % 20 == 0 {
-                            println!("📊 Mic Stats: received={}, speech={}, transcribed={}, level={:.1}dB", 
-                                result.chunks_stats.received, result.chunks_stats.with_speech, 
-                                result.chunks_stats.transcribed, result.audio_level_db);
-                        }
-                    }) => {
-                        eprintln!("Mic transcription task completed");
-                    }
-                    _ = cancel_mic.cancelled() => {
-                        eprintln!("Mic transcription task cancelled");
-                    }
-                }
-            });
-        });
-
-        // Speaker transcription task
-        let engine_speaker = engine;
-        let cancel_speaker = self.cancel_token.clone();
-        let speaker_events = events_tx;
-        tokio::task::spawn_blocking(move || {
-            let rt = tokio::runtime::Handle::current();
-            rt.block_on(async move {
-                tokio::select! {
-                    _ = transcription_task(speaker_rx, engine_speaker, move |result| {
-                        if let Some(tx) = speaker_events.as_ref() {
-                            let _ = tx.send(TranscriptionEvent::new(TranscriptionSource::Speaker, result.clone()));
-                        }
-
-                        println!("📝 🔊 Speaker [{}ms] {}", result.processing_time_ms, result.text);
-                        if result.chunks_stats.received % 20 == 0 {
-                            println!("📊 Speaker Stats: received={}, speech={}, transcribed={}, level={:.1}dB", 
-                                result.chunks_stats.received, result.chunks_stats.with_speech, 
-                                result.chunks_stats.transcribed, result.audio_level_db);
-                        }
-                    }) => {
-                        eprintln!("Speaker transcription task completed");
-                    }
-                    _ = cancel_speaker.cancelled() => {
-                        eprintln!("Speaker transcription task cancelled");
-                    }
-                }
-            });
-        });
-    }
 
     /// Spawn VAD-guided batch transcription tasks for FluidAudio (like RealTimeMicTest)
     fn spawn_vad_batch_tasks(
@@ -369,7 +254,7 @@ impl AudioRecorder {
                         let _ = tx.send(TranscriptionEvent::new(TranscriptionSource::Mic, result.clone()));
                     }
 
-                    if result.is_final {
+                    if result.is_result_final {
                         println!("✅ 🎤 Microphone (FINAL): {}", result.text);
                     } else {
                         println!("📝 🎤 Microphone (partial): {}", result.text);
@@ -394,7 +279,7 @@ impl AudioRecorder {
                             let _ = tx.send(TranscriptionEvent::new(TranscriptionSource::Speaker, result.clone()));
                         }
 
-                        if result.is_final {
+                        if result.is_result_final {
                             println!("✅ 🔊 Speaker (FINAL): {}", result.text);
                         } else {
                             println!("📝 🔊 Speaker (partial): {}", result.text);

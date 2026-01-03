@@ -8,7 +8,7 @@ mod types;
 use anyhow::Result;
 use commands::{start_transcription, stop_transcription, transcription_status, RecorderState};
 
-pub use config::{AudioConfig, EngineType};
+pub use config::AudioConfig;
 pub use recorder::AudioRecorder as Recorder;
 
 // Legacy entry point for backward compatibility

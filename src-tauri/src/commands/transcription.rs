@@ -64,8 +64,8 @@ pub struct TranscriptionEventPayload {
     audio_level_db: f32,
     stats: EventStatsPayload,
     received_at_ms: u128,
-    is_final: bool, // True for final results, false for partial/streaming
-    sentence_final: bool, // True when sentence is complete (start new message)
+    is_result_final: bool, // True for final results, false for partial/streaming
+    is_sentence_final: bool, // True when sentence is complete (start new message)
 }
 
 impl From<&TranscriptionEvent> for TranscriptionEventPayload {
@@ -84,8 +84,8 @@ impl From<&TranscriptionEvent> for TranscriptionEventPayload {
                 transcribed: event.result.chunks_stats.transcribed,
             },
             received_at_ms: current_timestamp_ms(),
-            is_final: event.result.is_final,
-            sentence_final: event.result.sentence_final,
+            is_result_final: event.result.is_result_final,
+            is_sentence_final: event.result.is_sentence_final,
         }
     }
 }

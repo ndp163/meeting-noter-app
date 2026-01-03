@@ -1,11 +1,9 @@
 //! FFI bridges to external libraries
 //!
-//! Provides transcription engines: WhisperKit (argmax) and FluidAudio
+//! Provides transcription engine: FluidAudio
 
-pub mod whisperkit;
 pub mod fluidaudio;
 
-pub use whisperkit::WhisperKit;
 pub use fluidaudio::FluidAudio;
 
 use async_trait::async_trait;
@@ -24,25 +22,6 @@ pub trait TranscriptionEngine: Send + Sync {
     
     /// Check if engine is initialized
     fn is_initialized(&self) -> bool;
-}
-
-#[async_trait]
-impl TranscriptionEngine for WhisperKit {
-    async fn initialize(&self, model_path: Option<&str>) -> Result<(), String> {
-        WhisperKit::initialize(self, model_path).await
-    }
-    
-    async fn transcribe(&self, audio_data: &[f32]) -> Result<String, String> {
-        WhisperKit::transcribe(self, audio_data).await
-    }
-    
-    async fn transcribe_stream(&self, audio_data: &[f32]) -> Result<String, String> {
-        WhisperKit::transcribe_stream(self, audio_data).await
-    }
-    
-    fn is_initialized(&self) -> bool {
-        WhisperKit::is_initialized(self)
-    }
 }
 
 #[async_trait]
