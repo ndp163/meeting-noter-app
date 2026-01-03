@@ -72,9 +72,13 @@ impl Speaker {
     pub fn new() -> Result<Self> {
         let tap_desc = ca::TapDesc::with_mono_global_tap_excluding_processes(&ns::Array::new());
         let tap = tap_desc.create_process_tap()?;
+        
+        // Safe: Handle tap.uid() properly (it returns Result)
+        let tap_uid = tap.uid()?;
+        
         let sub_tap = cf::DictionaryOf::with_keys_values(
             &[ca::sub_device_keys::uid()],
-            &[tap.uid().unwrap().as_type_ref()],
+            &[tap_uid.as_type_ref()],
         );
         let agg_desc = cf::DictionaryOf::with_keys_values(
             &[
@@ -95,7 +99,10 @@ impl Speaker {
         Ok(Self { tap, agg_desc })
     }
     pub fn sample_rate(&self) -> u32 {
-        self.tap.asbd().unwrap().sample_rate as u32
+        // Safe: Return default if asbd() fails
+        self.tap.asbd()
+            .map(|asbd| asbd.sample_rate as u32)
+            .unwrap_or(48000)
     }
 
     pub fn stream(self) -> Result<SpeakerStream> {

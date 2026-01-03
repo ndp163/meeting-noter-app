@@ -1,6 +1,6 @@
 use regex::Regex;
 
-/// Filter out non-speech content that WhisperKit might output
+/// Filter out non-speech content that transcription might output
 /// Removes tags like [Music], [Breathing], etc.
 pub fn filter_non_speech(text: &str) -> String {
     // Remove common non-speech tags that Whisper outputs

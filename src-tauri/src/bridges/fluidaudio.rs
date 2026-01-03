@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 type FluidAudioCallback = unsafe extern "C" fn(*const c_char, *const c_char, *mut c_void);
 
-#[link(name = "WhisperKitBridge")]
+#[link(name = "FluidAudioBridge")]
 extern "C" {
     fn fluid_audio_init(model_path: *const c_char, callback: FluidAudioCallback, context: *mut c_void);
     fn fluid_audio_transcribe(
@@ -136,31 +136,30 @@ impl FluidAudio {
             let _ = tx.send(result);
         }
 
-        // Convert f32 to i16 PCM format
-        let pcm_data: Vec<i16> = audio_data
+        // Convert f32 to i16 PCM format and convert to bytes
+        let audio_bytes: Vec<u8> = audio_data
             .iter()
-            .map(|&sample| (sample * i16::MAX as f32) as i16)
+            .flat_map(|&sample| {
+                let s = (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+                s.to_le_bytes()
+            })
             .collect();
 
-        let byte_data: &[u8] = unsafe {
-            std::slice::from_raw_parts(
-                pcm_data.as_ptr() as *const u8,
-                pcm_data.len() * std::mem::size_of::<i16>(),
-            )
-        };
+        // Pin audio_bytes to ensure it lives until FFI completes
+        let audio_bytes = Box::pin(audio_bytes);
 
         unsafe {
             if is_stream {
                 fluid_audio_transcribe_stream(
-                    byte_data.as_ptr(),
-                    byte_data.len(),
+                    audio_bytes.as_ptr(),
+                    audio_bytes.len(),
                     transcribe_callback,
                     context,
                 );
             } else {
                 fluid_audio_transcribe(
-                    byte_data.as_ptr(),
-                    byte_data.len(),
+                    audio_bytes.as_ptr(),
+                    audio_bytes.len(),
                     transcribe_callback,
                     context,
                 );
@@ -183,12 +182,13 @@ impl FluidAudio {
         let stream_id_c = CString::new(stream_id)
             .map_err(|e| format!("Invalid stream ID: {}", e))?;
         
-        // Convert f32 to bytes
+        // Convert f32 to bytes and pin
         let byte_data: Vec<u8> = audio_data
             .iter()
             .flat_map(|&f| f.to_le_bytes())
             .collect();
         
+        let byte_data = Box::pin(byte_data);
         let mut probability: f32 = 0.0;
         
         let success = unsafe {

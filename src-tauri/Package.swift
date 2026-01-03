@@ -2,26 +2,24 @@
 import PackageDescription
 
 let package = Package(
-    name: "WhisperKitBridge",
+    name: "FluidAudioBridge",
     platforms: [
         .macOS(.v14)
     ],
     products: [
         .library(
-            name: "WhisperKitBridge",
+            name: "FluidAudioBridge",
             type: .dynamic,
-            targets: ["WhisperKitBridge"]
+            targets: ["FluidAudioBridge"]
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/argmaxinc/WhisperKit.git", exact: "0.15.0"),
         .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.8.2")
     ],
     targets: [
         .target(
-            name: "WhisperKitBridge",
+            name: "FluidAudioBridge",
             dependencies: [
-                "WhisperKit",
                 .product(name: "FluidAudio", package: "FluidAudio")
             ],
             path: "src/bridges/swift",
