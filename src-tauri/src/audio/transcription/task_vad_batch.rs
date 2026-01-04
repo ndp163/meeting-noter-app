@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 use crate::bridges::FluidAudio;
-use crate::audio::processing::resample_to_16khz_fast;
+use crate::audio::processing::resample_to_16khz_dynamic;
 use super::{TranscriptionResult, ChunksStats};
 
 /// VAD-guided batch transcription like RealTimeMicTest
@@ -12,6 +12,7 @@ use super::{TranscriptionResult, ChunksStats};
 /// 4. Allow concurrent transcriptions (max 3 parallel)
 pub async fn vad_batch_transcription_task<F>(
     rx: crossbeam_channel::Receiver<Vec<f32>>,
+    input_sample_rate: u32,
     engine: Arc<FluidAudio>,
     on_result: F,
 ) where
@@ -69,8 +70,8 @@ pub async fn vad_batch_transcription_task<F>(
                     eprintln!("📦 VAD-Batch: received {} chunks", chunks_received);
                 }
                 
-                // Resample to 16kHz
-                let samples = resample_to_16khz_fast(&audio_data);
+                // Resample to 16kHz using actual input sample rate
+                let samples = resample_to_16khz_dynamic(&audio_data, input_sample_rate);
                 
                 // Use FluidAudio VAD (ML-based, like RealTimeMicTest)
                 // VAD is fast enough to run inline
