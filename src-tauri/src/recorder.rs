@@ -107,10 +107,14 @@ impl AudioRecorder {
             eprintln!("⚠️  Microphone not available - continuing with speaker only");
         }
         
-        // We'll create actual streams inside threads later
-        let output_sample_rate = 16000; // Standard sample rate
+        // Use standard macOS audio sample rate (48kHz) for WAV file
+        // We cannot create Speaker twice (once to detect, once to stream) as it causes TAP device conflicts
+        // macOS system audio typically runs at 48kHz, which is perfect for high-quality recording
+        let output_sample_rate = 48000u32;
+        eprintln!("🎵 Using macOS standard sample rate for WAV: {}Hz", output_sample_rate);
+        eprintln!("   (Audio will be resampled to 16kHz for transcription)");
 
-        // Now we can safely await - mic/speaker have been moved and dropped
+        // Now we can safely await
         // Initialize transcription engine (non-fatal if it fails)
         if self.engine.is_none() {
             eprintln!("Transcription engine not initialized yet, initializing FluidAudio...");
@@ -127,7 +131,9 @@ impl AudioRecorder {
 
         // Start background tasks
         self.spawn_mixer_task(audio_rx, output_sample_rate);
-        self.spawn_transcription_tasks(mic_rx, speaker_rx, events_tx);
+        // For transcription, we'll use the actual speaker sample rate (since mic may not exist)
+        // If mic exists, it typically has the same or similar sample rate
+        self.spawn_transcription_tasks(mic_rx, speaker_rx, events_tx, output_sample_rate, output_sample_rate);
 
         // Run audio streams
         self.run_streams(
@@ -221,12 +227,15 @@ impl AudioRecorder {
         mic_rx: crossbeam_channel::Receiver<Vec<f32>>,
         speaker_rx: crossbeam_channel::Receiver<Vec<f32>>,
         events_tx: Option<Sender<TranscriptionEvent>>,
+        mic_sample_rate: u32,
+        speaker_sample_rate: u32,
     ) {
         if let Some(ref engine) = self.engine {
             eprintln!("🚀 Starting transcription tasks with FluidAudio...");
+            eprintln!("   Mic sample rate: {}Hz, Speaker sample rate: {}Hz", mic_sample_rate, speaker_sample_rate);
             
             // Use VAD-batch transcription like RealTimeMicTest
-            self.spawn_vad_batch_tasks(engine.clone(), mic_rx, speaker_rx, events_tx);
+            self.spawn_vad_batch_tasks(engine.clone(), mic_rx, speaker_rx, events_tx, mic_sample_rate, speaker_sample_rate);
         } else {
             eprintln!("⚠️  Transcription engine not initialized - transcription tasks will NOT run!");
             eprintln!("    Audio will still be recorded, but no transcription will occur.");
@@ -242,6 +251,8 @@ impl AudioRecorder {
         mic_rx: crossbeam_channel::Receiver<Vec<f32>>,
         speaker_rx: crossbeam_channel::Receiver<Vec<f32>>,
         events_tx: Option<Sender<TranscriptionEvent>>,
+        mic_sample_rate: u32,
+        speaker_sample_rate: u32,
     ) {
         // Mic VAD-batch transcription task
         let engine_mic = engine.clone();
@@ -249,7 +260,7 @@ impl AudioRecorder {
         let mic_events = events_tx.clone();
         tokio::task::spawn(async move {
             tokio::select! {
-                _ = vad_batch_transcription_task(mic_rx, engine_mic, move |result| {
+                _ = vad_batch_transcription_task(mic_rx, mic_sample_rate, engine_mic, move |result| {
                     if let Some(tx) = mic_events.as_ref() {
                         let _ = tx.send(TranscriptionEvent::new(TranscriptionSource::Mic, result.clone()));
                     }
@@ -274,7 +285,7 @@ impl AudioRecorder {
         let speaker_events = events_tx;
         tokio::task::spawn(async move {
             tokio::select! {
-                _ = vad_batch_transcription_task(speaker_rx, engine_speaker, move |result| {
+                _ = vad_batch_transcription_task(speaker_rx, speaker_sample_rate, engine_speaker, move |result| {
                         if let Some(tx) = speaker_events.as_ref() {
                             let _ = tx.send(TranscriptionEvent::new(TranscriptionSource::Speaker, result.clone()));
                         }
