@@ -2,11 +2,13 @@
 //!
 //! This module contains all audio-related functionality:
 //! - **capture**: Microphone and system audio capture
+//! - **constants**: Centralized audio configuration constants
 //! - **processing**: Audio processing (mixing, resampling, filtering)
 //! - **streams**: Stream handlers with dual output (mixer + transcription)
 //! - **transcription**: VAD + FluidAudio integration
 
 pub mod capture;
+pub mod constants;
 pub mod processing;
 pub mod streams;
 pub mod transcription;

@@ -11,43 +11,83 @@ import {
   stopTranscription,
   TranscriptionEventPayload,
 } from "@/services/transcription";
-
-interface TranscriptMessage {
-  id: string;
-  speaker: string;
-  timestamp: string;
-  content: string;
-  isUser: boolean;
-  source?: string;
-  receivedAt?: number; // Add this to track actual timestamp
-  isFinal?: boolean; // Track if batch is finalized
-  sentenceFinal?: boolean; // Track if sentence is complete
-  committedContent?: string; // Content that was committed via batch final (8s)
-}
+import {
+  getMeetings,
+  getMeetingDetail,
+  saveMeeting,
+  deleteMeeting as deleteMeetingService,
+  getMeetingAudioPath,
+  createNewMeeting,
+} from "@/services/meetings";
+import { useBoundStore } from "@/store";
+import type { TranscriptMessage } from "@/store/meetings.slice";
 
 export const HomePage = () => {
   const [activeTab, setActiveTab] = useState<"transcript" | "summary">(
     "transcript"
   );
-  const [activeMeetingId, setActiveMeetingId] = useState("1");
-  const [messages, setMessages] = useState<TranscriptMessage[]>([]);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isCaptureBusy, setIsCaptureBusy] = useState(false);
+  const [audioPath, setAudioPath] = useState<string>();
+
+  // Zustand store
+  const meetings = useBoundStore.use.meetings();
+  const currentMeetingId = useBoundStore.use.currentMeetingId();
+  const setMeetings = useBoundStore.use.setMeetings();
+  const addMeeting = useBoundStore.use.addMeeting();
+  const updateMeeting = useBoundStore.use.updateMeeting();
+  const deleteMeeting = useBoundStore.use.deleteMeeting();
+  const setCurrentMeetingId = useBoundStore.use.setCurrentMeetingId();
+  const addTranscriptToMeeting = useBoundStore.use.addTranscriptToMeeting();
+  const updateTranscriptInMeeting =
+    useBoundStore.use.updateTranscriptInMeeting();
+  const getCurrentMeeting = useBoundStore.use.getCurrentMeeting();
+  const getCapturingMeeting = useBoundStore.use.getCapturingMeeting();
+
+  const currentMeeting = getCurrentMeeting();
+  const messages = currentMeeting?.transcript || [];
 
   // Ref for auto-scrolling to bottom
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const contentAreaRef = useRef<HTMLDivElement>(null);
 
-  const meetings = [
-    { id: "1", title: "Untitled", date: "11:21 12/02/25", isActive: true },
-    { id: "2", title: "Untitled", date: "11:21 12/02/25" },
-    { id: "3", title: "Untitled", date: "11:21 14/02/25" },
-    { id: "4", title: "Untitled", date: "11:21 12/02/25" },
-    { id: "5", title: "Untitled", date: "11:21 12/02/25" },
-    { id: "6", title: "Untitled", date: "11:21 12/02/25" },
-  ];
+  // Load meetings on mount
+  useEffect(() => {
+    let mounted = true;
 
+    (async () => {
+      try {
+        const loadedMeetings = await getMeetings();
+        if (mounted) {
+          setMeetings(loadedMeetings);
+
+          // Set current meeting to the most recent one or create a new one
+          if (loadedMeetings.length > 0) {
+            const mostRecent = loadedMeetings[0];
+            setCurrentMeetingId(mostRecent.id);
+
+            // Load audio path if available
+            if (mostRecent.audioPath || mostRecent.status === "completed") {
+              try {
+                const path = await getMeetingAudioPath(mostRecent.id);
+                setAudioPath(path);
+              } catch (e) {
+                console.log("No audio available for this meeting");
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load meetings", error);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [setMeetings, setCurrentMeetingId]);
+
+  // Check transcription status on mount
   useEffect(() => {
     let mounted = true;
 
@@ -67,6 +107,7 @@ export const HomePage = () => {
     };
   }, []);
 
+  // Listen to transcription events
   useEffect(() => {
     let unlisten: (() => void) | null = null;
 
@@ -82,64 +123,67 @@ export const HomePage = () => {
         payload.is_sentence_final
       );
 
-      setMessages((prev) => {
-        // Find the last message from the SAME source
-        let lastIndexOfSource = -1;
-        for (let i = prev.length - 1; i >= 0; i--) {
-          if (prev[i].source === payload.source) {
-            lastIndexOfSource = i;
-            break;
-          }
+      const meeting = getCapturingMeeting();
+      if (!meeting) return;
+
+      const transcript = meeting.transcript;
+
+      // Find the last message from the SAME source
+      let lastIndexOfSource = -1;
+      for (let i = transcript.length - 1; i >= 0; i--) {
+        if (transcript[i].source === payload.source) {
+          lastIndexOfSource = i;
+          break;
+        }
+      }
+
+      const lastMessageOfSource =
+        lastIndexOfSource >= 0 ? transcript[lastIndexOfSource] : null;
+
+      // If sentence was finalized (is_sentence_final=true), always create new message
+      if (lastMessageOfSource?.sentenceFinal) {
+        const newMessage = mapPayloadToMessage(payload);
+        addTranscriptToMeeting(meeting.id, newMessage);
+        return;
+      }
+
+      // Update existing message if: found message from same source AND not sentence-finalized yet
+      if (lastMessageOfSource && !lastMessageOfSource.sentenceFinal) {
+        const currentMsg = lastMessageOfSource;
+
+        // Determine new content based on is_result_final and committedContent
+        let newContent: string;
+        let newCommittedContent: string | undefined;
+
+        if (payload.is_result_final && !payload.is_sentence_final) {
+          // Batch final (8s) - append new text to committed content
+          const committed = currentMsg.committedContent || "";
+          newCommittedContent = committed
+            ? `${committed} ${payload.text}`
+            : payload.text;
+          newContent = newCommittedContent;
+        } else if (currentMsg.committedContent) {
+          // Streaming update AFTER batch final - append to committed content
+          newContent = `${currentMsg.committedContent} ${payload.text}`;
+          newCommittedContent = currentMsg.committedContent; // Keep committed
+        } else {
+          // Streaming update before any batch final - just replace
+          newContent = payload.text;
+          newCommittedContent = undefined;
         }
 
-        const lastMessageOfSource =
-          lastIndexOfSource >= 0 ? prev[lastIndexOfSource] : null;
+        updateTranscriptInMeeting(meeting.id, currentMsg.id, {
+          content: newContent,
+          isFinal: payload.is_result_final,
+          sentenceFinal: payload.is_sentence_final,
+          committedContent: newCommittedContent,
+        });
+        return;
+      }
 
-        // If sentence was finalized (is_sentence_final=true), always create new message
-        if (lastMessageOfSource?.sentenceFinal) {
-          return [...prev, mapPayloadToMessage(payload)];
-        }
-
-        // Update existing message if: found message from same source AND not sentence-finalized yet
-        if (lastMessageOfSource && !lastMessageOfSource.sentenceFinal) {
-          const updated = [...prev];
-          const currentMsg = updated[lastIndexOfSource];
-
-          // Determine new content based on is_result_final and committedContent
-          let newContent: string;
-          let newCommittedContent: string | undefined;
-
-          if (payload.is_result_final && !payload.is_sentence_final) {
-            // Batch final (8s) - append new text to committed content
-            const committed = currentMsg.committedContent || "";
-            newCommittedContent = committed
-              ? `${committed} ${payload.text}`
-              : payload.text;
-            newContent = newCommittedContent;
-          } else if (currentMsg.committedContent) {
-            // Streaming update AFTER batch final - append to committed content
-            newContent = `${currentMsg.committedContent} ${payload.text}`;
-            newCommittedContent = currentMsg.committedContent; // Keep committed
-          } else {
-            // Streaming update before any batch final - just replace
-            newContent = payload.text;
-            newCommittedContent = undefined;
-          }
-
-          updated[lastIndexOfSource] = {
-            ...currentMsg,
-            content: newContent,
-            receivedAt: payload.received_at_ms,
-            isFinal: payload.is_result_final,
-            sentenceFinal: payload.is_sentence_final,
-            committedContent: newCommittedContent,
-          };
-          return updated;
-        }
-
-        // Create new message (no previous from this source, or last was sentence-finalized)
-        return [...prev, mapPayloadToMessage(payload)];
-      });
+      // Create new message (no previous from this source, or last was sentence-finalized)
+      const newMessage = mapPayloadToMessage(payload);
+      addTranscriptToMeeting(meeting.id, newMessage);
     })
       .then((release) => {
         console.log("Transcription listener registered");
@@ -155,7 +199,12 @@ export const HomePage = () => {
         unlisten();
       }
     };
-  }, []);
+  }, [
+    currentMeetingId,
+    getCurrentMeeting,
+    addTranscriptToMeeting,
+    updateTranscriptInMeeting,
+  ]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -172,10 +221,26 @@ export const HomePage = () => {
     setIsCaptureBusy(true);
     try {
       if (isCapturing) {
+        // Stop capture
         await stopTranscription();
         setIsCapturing(false);
+
+        // Update meeting status
+        if (currentMeetingId) {
+          const meeting = getCapturingMeeting();
+          updateMeeting(currentMeetingId, { status: "completed" });
+          if (meeting) {
+            await saveMeeting({ ...meeting, status: "completed" });
+            const path = await getMeetingAudioPath(meeting.id);
+            setAudioPath(path);
+          }
+        }
       } else {
-        await startTranscription();
+        const newMeeting = await createNewMeeting();
+        addMeeting(newMeeting);
+        setCurrentMeetingId(newMeeting.id);
+        setAudioPath(undefined);
+        await startTranscription(newMeeting.id);
         setIsCapturing(true);
       }
     } catch (error) {
@@ -185,8 +250,72 @@ export const HomePage = () => {
     }
   };
 
-  const handleMeetingSelect = (id: string) => {
-    setActiveMeetingId(id);
+  const handleMeetingSelect = async (id: string) => {
+    if (isCapturing && id !== currentMeetingId) {
+      alert("Please stop the current recording before switching meetings");
+      return;
+    }
+    setCurrentMeetingId(id);
+
+    // Check if meeting already has data in store
+    const existingMeeting = meetings.find((m) => m.id === id);
+    if (existingMeeting?.transcript && existingMeeting.transcript.length > 0) {
+      // Meeting already has data in store, just load audio if needed
+      console.log("Meeting already in store, using existing data");
+      if (existingMeeting.status === "completed") {
+        try {
+          const path = await getMeetingAudioPath(id);
+          setAudioPath(path);
+        } catch (e) {
+          console.log("No audio available for this meeting");
+          setAudioPath(undefined);
+        }
+      } else {
+        setAudioPath(undefined);
+      }
+      return;
+    }
+
+    // Load full meeting detail from backend only if not in store or empty
+    try {
+      const meeting = await getMeetingDetail(id);
+      updateMeeting(id, meeting);
+
+      // Load audio path if available
+      if (meeting.status === "completed") {
+        try {
+          const path = await getMeetingAudioPath(id);
+          setAudioPath(path);
+        } catch (e) {
+          console.log("No audio available for this meeting");
+          setAudioPath(undefined);
+        }
+      } else {
+        setAudioPath(undefined);
+      }
+    } catch (error) {
+      console.error("Failed to load meeting detail", error);
+    }
+  };
+
+  const handleDeleteMeeting = async (id: string) => {
+    try {
+      await deleteMeetingService(id);
+      deleteMeeting(id);
+
+      if (id === currentMeetingId) {
+        setAudioPath(undefined);
+        const remainingMeetings = meetings.filter((m) => m.id !== id);
+        if (remainingMeetings.length > 0) {
+          setCurrentMeetingId(remainingMeetings[0].id);
+        } else {
+          setCurrentMeetingId(null);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to delete meeting", error);
+      alert("Failed to delete meeting: " + error);
+    }
   };
 
   return (
@@ -194,9 +323,10 @@ export const HomePage = () => {
       {/* Sidebar */}
       <Sidebar
         meetings={meetings}
-        activeMeetingId={activeMeetingId}
+        activeMeetingId={currentMeetingId || undefined}
         onMeetingSelect={handleMeetingSelect}
         onToggleCapture={handleCaptureToggle}
+        onDeleteMeeting={handleDeleteMeeting}
         isCapturing={isCapturing}
         isCaptureBusy={isCaptureBusy}
       />
@@ -240,10 +370,10 @@ export const HomePage = () => {
                   {messages.map((message) => (
                     <Message
                       key={message.id}
-                      speaker={message.speaker}
+                      label={message.label}
                       timestamp={message.timestamp}
                       content={message.content}
-                      isUser={message.isUser}
+                      isUser={message.source === "mic"}
                     />
                   ))}
                   {/* Invisible element to scroll to */}
@@ -253,7 +383,9 @@ export const HomePage = () => {
                 <div className="text-custom-text-secondary text-sm">
                   {isCapturing
                     ? "Listening for speech..."
-                    : "Press Start Capture to begin transcribing your meeting."}
+                    : currentMeetingId
+                    ? "No transcript yet. Press Start Capture to begin recording."
+                    : "Create a new meeting or select an existing one to get started."}
                 </div>
               )
             ) : (
@@ -265,12 +397,7 @@ export const HomePage = () => {
         </div>
 
         {/* Audio Player */}
-        <AudioPlayer
-          currentTime="00:00"
-          totalTime="4:43"
-          isPlaying={isPlaying}
-          onPlayPause={() => setIsPlaying(!isPlaying)}
-        />
+        <AudioPlayer audioPath={audioPath} />
       </div>
     </div>
   );
@@ -286,11 +413,9 @@ const mapPayloadToMessage = (
 
   return {
     id: generatedId,
-    speaker: payload.source === "mic" ? "You" : "Speaker",
+    label: payload.source === "mic" ? "You" : "Speaker",
     timestamp: formatTimestamp(payload.received_at_ms),
     content: payload.text,
-    isUser: payload.source === "mic",
-    receivedAt: payload.received_at_ms,
     source: payload.source,
     isFinal: payload.is_result_final,
     sentenceFinal: payload.is_sentence_final,

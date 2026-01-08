@@ -4,8 +4,8 @@
 //! - Microphone (via cpal)
 //! - System audio/Speaker (via ScreenCaptureKit on macOS)
 
-mod mic;
-mod speaker;
+pub mod mic;
+pub mod speaker;
 
 pub use mic::Mic;
 pub use speaker::Speaker;

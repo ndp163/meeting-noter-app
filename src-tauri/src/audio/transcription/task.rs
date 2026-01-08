@@ -1,7 +1,3 @@
-use std::sync::Arc;
-
-use crate::bridges::TranscriptionEngine;
-use crate::audio::processing::{resample_to_16khz_fast, filter_non_speech};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]

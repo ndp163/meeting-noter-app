@@ -63,8 +63,9 @@ impl Stream for MicStream {
         
         // No data available, register waker
         {
-            let mut state = this.waker_state.lock().unwrap();
-            state.waker = Some(cx.waker().clone());
+            if let Ok(mut state) = this.waker_state.lock() {
+                state.waker = Some(cx.waker().clone());
+            }
         }
         
         Poll::Pending
@@ -91,7 +92,7 @@ impl Mic {
     }
 
     pub fn stream(self) -> Result<MicStream> {
-        eprintln!("📍 Mic::stream() called - starting stream creation");
+        tracing::debug!("Mic::stream() called - starting stream creation");
         
         let buffer_size = CHUNK_SIZE * RING_BUFFER_MULTIPLIER;
         let rb = HeapRb::<f32>::new(buffer_size);
@@ -104,7 +105,7 @@ impl Mic {
         let has_data = Arc::new(AtomicBool::new(false));
         let sample_rate = self.config.sample_rate;
         
-        eprintln!("🎙️  Building mic stream (sample_rate: {}, buffer_size: {})", sample_rate, buffer_size);
+        tracing::info!("Building mic stream (sample_rate: {}, buffer_size: {})", sample_rate, buffer_size);
 
         let ctx = Arc::new(Mutex::new(Ctx {
             producer,
@@ -113,7 +114,7 @@ impl Mic {
         }));
 
         let ctx_clone = ctx.clone();
-        eprintln!("🔧 Calling build_input_stream...");
+        tracing::debug!("Calling build_input_stream...");
         
         // CRITICAL: Check if build_input_stream can fail silently
         // Try without panic handler first to see actual error
@@ -125,26 +126,26 @@ impl Mic {
                 }
             },
             |err| {
-                eprintln!("❌ Mic stream error callback: {}", err);
+                tracing::error!("Mic stream error callback: {}", err);
             },
             None,
         ) {
             Ok(s) => {
-                eprintln!("✅ build_input_stream success");
+                tracing::info!("build_input_stream success");
                 s
             }
             Err(e) => {
-                eprintln!("❌ build_input_stream failed: {}", e);
+                tracing::error!("build_input_stream failed: {}", e);
                 return Err(anyhow::anyhow!("Failed to build input stream: {}", e));
             }
         };
         
-        eprintln!("🔧 Calling stream.play()...");
+        tracing::debug!("Calling stream.play()...");
         stream.play().map_err(|e| {
-            eprintln!("❌ stream.play() failed: {}", e);
+            tracing::error!("stream.play() failed: {}", e);
             anyhow::anyhow!("Failed to play stream: {}", e)
         })?;
-        eprintln!("✅ Mic stream playing");
+        tracing::info!("Mic stream playing");
 
         Ok(MicStream {
             consumer,
@@ -161,7 +162,7 @@ impl Mic {
         
         if pushed < data.len() {
             let dropped = data.len() - pushed;
-            eprintln!("⚠️  Mic samples dropped: {} / {}", dropped, data.len());
+            tracing::warn!("Mic samples dropped: {} / {}", dropped, data.len());
         }
         
         if pushed > 0 {
@@ -170,8 +171,10 @@ impl Mic {
             
             // Only wake if buffer was previously empty
             if was_empty {
-                if let Some(waker) = ctx.waker_state.lock().unwrap().waker.take() {
-                    waker.wake();
+                if let Ok(mut waker_state) = ctx.waker_state.lock() {
+                    if let Some(waker) = waker_state.waker.take() {
+                        waker.wake();
+                    }
                 }
             }
         }

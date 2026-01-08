@@ -10,7 +10,6 @@ use std::any::TypeId;
 use std::sync::atomic::{AtomicU32, AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Poll, Waker};
-use tracing::info;
 
 pub struct Speaker {
     tap: ca::TapGuard,
@@ -49,8 +48,9 @@ impl Stream for SpeakerStream {
             return Poll::Ready(Some(this.read_buffer[..popped].to_vec()));
         }
         {
-            let mut state = this.waker_state.lock().unwrap();
-            state.waker = Some(cx.waker().clone());
+            if let Ok(mut state) = this.waker_state.lock() {
+                state.waker = Some(cx.waker().clone());
+            }
         }
         Poll::Pending
     }
@@ -118,7 +118,7 @@ impl Speaker {
         }));
         let current_sample_rate = Arc::new(AtomicU32::new(asbd.sample_rate as u32));
         let has_data = Arc::new(AtomicBool::new(false));
-        eprintln!("🔊 Building speaker stream (sample_rate: {}, buffer_size: {})", asbd.sample_rate, buffer_size);
+        tracing::info!("Building speaker stream (sample_rate: {}, buffer_size: {})", asbd.sample_rate, buffer_size);
         let mut ctx = Box::new(AudioContext {
             format,
             producer,
@@ -152,14 +152,20 @@ impl Speaker {
             _output_time: &cat::AudioTimeStamp,
             ctx: Option<&mut AudioContext>,
         ) -> os::Status {
-            let ctx = ctx.unwrap();
+            let ctx = match ctx {
+                Some(c) => c,
+                None => {
+                    tracing::error!("Speaker audio callback: context is null");
+                    return os::Status::NO_ERR;
+                }
+            };
             let after = device
                 .nominal_sample_rate()
                 .unwrap_or(ctx.format.absd().sample_rate) as u32;
             let before = ctx.current_sample_rate.load(Ordering::Acquire);
             if before != after {
                 ctx.current_sample_rate.store(after, Ordering::Release);
-                eprintln!("🔄 Sample rate changed: {} -> {}", before, after);
+                tracing::info!("Sample rate changed: {} -> {}", before, after);
             }
             if let Some(view) =
                 av::AudioPcmBuf::with_buf_list_no_copy(&ctx.format, input_data, None)
@@ -219,7 +225,15 @@ impl Speaker {
         if sample_count == 0 {
             return None;
         }
-        Some(unsafe { std::slice::from_raw_parts(buffer.data as *const T, sample_count) })
+        
+        // Additional safety: verify alignment
+        let ptr = buffer.data as *const T;
+        if (ptr as usize) % std::mem::align_of::<T>() != 0 {
+            tracing::warn!("Audio buffer misaligned, skipping");
+            return None;
+        }
+        
+        Some(unsafe { std::slice::from_raw_parts(ptr, sample_count) })
     }
 
     fn process_samples<T, F>(ctx: &mut AudioContext, buffer: &cat::AudioBuf, mut convert: F)
@@ -252,13 +266,15 @@ impl Speaker {
         let pushed = ctx.producer.push_slice(data);
         if pushed < data.len() {
             let dropped = data.len() - pushed;
-            eprintln!("⚠️  Speaker samples dropped: {} / {}", dropped, data.len());
+            tracing::warn!(" Speaker samples dropped: {} / {}", dropped, data.len());
         }
         if pushed > 0 {
             let was_empty = !ctx.has_data.swap(true, Ordering::AcqRel);
             if was_empty {
-                if let Some(waker) = ctx.waker_state.lock().unwrap().waker.take() {
-                    waker.wake();
+                if let Ok(mut waker_state) = ctx.waker_state.lock() {
+                    if let Some(waker) = waker_state.waker.take() {
+                        waker.wake();
+                    }
                 }
             }
         }

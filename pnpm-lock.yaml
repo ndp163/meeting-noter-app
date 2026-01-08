@@ -20,6 +20,9 @@ importers:
       '@tauri-apps/plugin-opener':
         specifier: ^2
         version: 2.5.2
+      '@wavesurfer/react':
+        specifier: ^1.0.12
+        version: 1.0.12(react@19.2.1)(wavesurfer.js@7.12.1)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -56,6 +59,9 @@ importers:
       tailwindcss:
         specifier: ^4.1.17
         version: 4.1.17
+      wavesurfer.js:
+        specifier: ^7.12.1
+        version: 7.12.1
       zustand:
         specifier: ^5.0.9
         version: 5.0.9(@types/react@19.2.5)(immer@11.0.1)(react@19.2.1)
@@ -683,6 +689,12 @@ packages:
     peerDependencies:
       vite: ^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0
 
+  '@wavesurfer/react@1.0.12':
+    resolution: {integrity: sha512-BNHpz2ryKNVvJdxB47pCPUsNCsjb2pZRysg82M5djIiw0vsiSJwdlt5jaAfDo3vd5IWrcoK9OiPQKO9ZEVNpDQ==}
+    peerDependencies:
+      react: ^18.2.0 || ^19.0.0
+      wavesurfer.js: '>=7.7.14'
+
   bail@2.0.2:
     resolution: {integrity: sha512-0xO6mYd7JB2YesxDKplafRpsiOzPt9V02ddPCLbY1xYGPOX24NTyN50qnUxgCPcSoYMhKpAuBTjQoRZCAkUDRw==}
 
@@ -1293,6 +1305,9 @@ packages:
       yaml:
         optional: true
 
+  wavesurfer.js@7.12.1:
+    resolution: {integrity: sha512-NswPjVHxk0Q1F/VMRemCPUzSojjuHHisQrBqQiRXg7MVbe3f5vQ6r0rTTXA/a/neC/4hnOEC4YpXca4LpH0SUg==}
+
   yallist@3.1.1:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
 
@@ -1792,6 +1807,11 @@ snapshots:
       vite: 7.2.2(@types/node@24.10.1)(jiti@2.6.1)(lightningcss@1.30.2)
     transitivePeerDependencies:
       - supports-color
+
+  '@wavesurfer/react@1.0.12(react@19.2.1)(wavesurfer.js@7.12.1)':
+    dependencies:
+      react: 19.2.1
+      wavesurfer.js: 7.12.1
 
   bail@2.0.2: {}
 
@@ -2615,6 +2635,8 @@ snapshots:
       fsevents: 2.3.3
       jiti: 2.6.1
       lightningcss: 1.30.2
+
+  wavesurfer.js@7.12.1: {}
 
   yallist@3.1.1: {}
 

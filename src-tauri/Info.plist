@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Microphone usage description -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Noter needs access to your microphone to transcribe meeting audio.</string>
+    
+    <!-- Screen recording usage description (for system audio capture) -->
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Noter needs screen recording permission to capture system audio from meetings.</string>
+    
+    <!-- Audio recording usage description -->
+    <key>NSAudioRecordingUsageDescription</key>
+    <string>Noter needs to record audio to transcribe your meetings.</string>
+</dict>
+</plist>
