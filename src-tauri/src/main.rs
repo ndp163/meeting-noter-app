@@ -3,5 +3,9 @@
 
 #[tokio::main]
 async fn main() {
-    noter_lib::run().await;
+    // Logging is initialized in noter_lib::run()
+    if let Err(e) = noter_lib::run().await {
+        tracing::error!(error = %e, "Application error");
+        std::process::exit(1);
+    }
 }

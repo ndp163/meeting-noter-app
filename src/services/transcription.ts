@@ -29,8 +29,8 @@ export interface TranscriptionEventPayload {
   is_sentence_final: boolean; // True when sentence is complete (start new message)
 }
 
-export const startTranscription = async () => {
-  await invoke("start_transcription");
+export const startTranscription = async (meetingId: string) => {
+  await invoke("start_transcription", { meetingId });
 };
 
 export const stopTranscription = async () => {

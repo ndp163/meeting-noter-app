@@ -31,7 +31,11 @@ fn build_swift_bridge() {
     println!("cargo:rustc-link-lib=framework=Foundation");
     println!("cargo:rustc-link-lib=framework=Accelerate");
     
-    // Set rpath so the binary can find the dylib at runtime
-    println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../lib");
+    // Set rpath for different scenarios:
+    // 1. Development: lib directory next to target/
+    // 2. Production bundle: Frameworks directory inside .app bundle
+    // @executable_path/../Frameworks is the standard location for bundled dylibs in macOS apps
+    println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../Frameworks");
+    // Also keep the dev path for running from target/debug or target/release directly
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
 }

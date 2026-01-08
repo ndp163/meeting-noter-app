@@ -1,5 +1,6 @@
 import { create, StateCreator, StoreApi, UseBoundStore } from "zustand";
 import { createTeamsSlice, TeamsSlice } from "./teams.slice";
+import { createMeetingsSlice, MeetingsSlice } from "./meetings.slice";
 import { immer } from "zustand/middleware/immer";
 
 type WithSelectors<S> = S extends { getState: () => infer T }
@@ -18,10 +19,13 @@ const createSelectors = <S extends UseBoundStore<StoreApi<object>>>(
   return store;
 };
 
-const useBoundStoreBase = create<TeamsSlice>()(
+type StoreState = TeamsSlice & MeetingsSlice;
+
+const useBoundStoreBase = create<StoreState>()(
   immer((...a) => ({
-    ...createTeamsSlice(...a),
-  })) as StateCreator<TeamsSlice, [], [], TeamsSlice>
+    ...createTeamsSlice(...(a as Parameters<StateCreator<StoreState>>)),
+    ...createMeetingsSlice(...(a as Parameters<StateCreator<StoreState>>)),
+  })) as StateCreator<StoreState, [], [], StoreState>
 );
 
 export const useBoundStore = createSelectors(useBoundStoreBase);

@@ -1,13 +1,16 @@
 use crossbeam_channel::Receiver;
 use hound;
-use std::path::PathBuf;
 
+use crate::paths;
 use crate::types::AudioSource;
+use crate::audio::constants::{MIXER_BUFFER_CAPACITY, DEFAULT_MIC_GAIN, DEFAULT_SYSTEM_GAIN};
 
 /// Mix microphone and system audio streams and write to WAV file
+#[tracing::instrument(skip(rx), fields(meeting_id))]
 pub fn mixer(
     rx: Receiver<AudioSource>,
     sample_rate: u32,
+    meeting_id: Option<String>,
 ) {
     let spec = hound::WavSpec {
         channels: 1,
@@ -16,50 +19,54 @@ pub fn mixer(
         sample_format: hound::SampleFormat::Int,
     };
 
-    // Create recordings directory in project root (one level up from src-tauri)
-    let project_root = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().and_then(|p| p.parent()).map(|p| p.to_path_buf()))
-        .unwrap_or_else(|| {
-            // Fallback: try to go up from current_dir
-            std::env::current_dir()
-                .ok()
-                .and_then(|d| d.parent().map(|p| p.to_path_buf()))
-                .unwrap_or_else(|| PathBuf::from(".."))
-        });
+    // Determine output path based on meeting_id
+    let output_path = if let Some(ref id) = meeting_id {
+        // Save directly to meeting folder
+        match paths::ensure_meeting_dir(id) {
+            Ok(meeting_dir) => meeting_dir.join("audio.wav"),
+            Err(e) => {
+                tracing::error!("Failed to create meeting directory: {}", e);
+                return;
+            }
+        }
+    } else {
+        // Fallback: save with timestamp (legacy behavior)
+        let recordings_dir = match paths::ensure_recordings_dir() {
+            Ok(dir) => dir,
+            Err(e) => {
+                tracing::error!("Failed to create recordings directory: {}", e);
+                return;
+            }
+        };
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_else(|e| {
+                tracing::warn!("Failed to get system time: {}, using 0", e);
+                std::time::Duration::from_secs(0)
+            })
+            .as_secs();
+        recordings_dir.join(format!("noter_mixed_{}.wav", timestamp))
+    };
     
-    let recordings_dir = project_root.join("recordings");
-    if !recordings_dir.exists() {
-        std::fs::create_dir_all(&recordings_dir).ok();
-    }
-    
-    eprintln!("📁 Recordings directory: {}", recordings_dir.display());
-    
-    // Generate filename with timestamp
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_else(|_| std::time::Duration::from_secs(0))
-        .as_secs();
-    let output_path = recordings_dir.join(format!("noter_mixed_{}.wav", timestamp));
+    tracing::info!(path = %output_path.display(), "Audio output path configured");
     
     let mut writer = match hound::WavWriter::create(&output_path, spec) {
         Ok(w) => w,
         Err(e) => {
-            eprintln!("❌ Failed to create WAV file: {}", e);
+            tracing::error!("Failed to create WAV file: {}", e);
             return;
         }
     };
-    eprintln!("Recording to: {}", output_path.display());
+    tracing::debug!(path = %output_path.display(), "Recording started");
 
     // Pre-allocate buffers with reasonable capacity
-    const BUFFER_CAPACITY: usize = 48000; // 1 second at 48kHz
-    let mut mic_buf = Vec::<f32>::with_capacity(BUFFER_CAPACITY);
-    let mut sys_buf = Vec::<f32>::with_capacity(BUFFER_CAPACITY);
+    let mut mic_buf = Vec::<f32>::with_capacity(MIXER_BUFFER_CAPACITY);
+    let mut sys_buf = Vec::<f32>::with_capacity(MIXER_BUFFER_CAPACITY);
 
-    let mic_gain = 1.0;
-    let sys_gain = 1.0;
+    let mic_gain = DEFAULT_MIC_GAIN;
+    let sys_gain = DEFAULT_SYSTEM_GAIN;
     
-    eprintln!("Mixer started for WAV recording at {}Hz...", sample_rate);
+    tracing::info!(sample_rate, mic_gain, sys_gain, "Mixer started for WAV recording");
 
     loop {
         match rx.recv() {
@@ -67,7 +74,7 @@ pub fn mixer(
             Ok(AudioSource::System(data)) => sys_buf.extend(data),
             Err(_) => {
                 // Channel closed, flush remaining data and exit
-                eprintln!("Audio channel closed, flushing mixer...");
+                tracing::debug!("Audio channel closed, flushing mixer...");
                 break;
             }
         }
@@ -82,7 +89,7 @@ pub fn mixer(
 
             let s = (mixed.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
             if let Err(e) = writer.write_sample(s) {
-                eprintln!("❌ Failed to write sample: {} - stopping mixer", e);
+                tracing::error!("Failed to write sample: {} - stopping mixer", e);
                 return; // Exit mixer on write error
             }
         }
@@ -97,15 +104,15 @@ pub fn mixer(
         let mixed = mic_buf[i] * mic_gain + sys_buf[i] * sys_gain;
         let s = (mixed.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
         if let Err(e) = writer.write_sample(s) {
-            eprintln!("⚠️ Failed to write final sample: {}", e);
+            tracing::warn!("Failed to write final sample: {}", e);
             break;
         }
     }
     
     // Finalize WAV file
     if let Err(e) = writer.finalize() {
-        eprintln!("❌ Failed to finalize WAV file: {}", e);
+        tracing::error!("Failed to finalize WAV file: {}", e);
     } else {
-        eprintln!("✅ Mixer completed, WAV file written to {}", output_path.display());
+        tracing::info!(path = %output_path.display(), "Mixer completed, WAV file written");
     }
 }

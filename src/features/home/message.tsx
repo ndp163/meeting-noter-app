@@ -1,21 +1,21 @@
 import { cn } from "@/lib/utils";
 
 interface MessageProps {
-  speaker: string;
+  label: string;
   timestamp: string;
   content: string;
   isUser?: boolean;
 }
 
 export const Message = ({
-  speaker,
+  label,
   timestamp,
   content,
   isUser,
 }: MessageProps) => {
   return (
     <div className="bg-white flex flex-col gap-2.5 w-full">
-      {/* Header with speaker and timestamp */}
+      {/* Header with label and timestamp */}
       <div className="flex gap-2.5 items-center">
         <div
           className={cn(
@@ -29,7 +29,7 @@ export const Message = ({
               isUser ? "text-custom-text-highlight" : "text-custom-text-primary"
             )}
           >
-            {speaker}
+            {label}
           </p>
         </div>
         <p className="text-base text-custom-text-secondary">{timestamp}</p>

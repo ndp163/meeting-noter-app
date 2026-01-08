@@ -1,8 +1,66 @@
 use std::ffi::{c_char, c_void, CStr, CString};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 type FluidAudioCallback = unsafe extern "C" fn(*const c_char, *const c_char, *mut c_void);
+
+/// Thread-safe counter for tracking callback context allocations (for debugging)
+static CALLBACK_CONTEXT_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// Safety wrapper for FFI callback context
+/// 
+/// This struct ensures safe handling of oneshot channels across FFI boundaries.
+/// It uses atomic operations to prevent double-consumption and tracks allocation
+/// count for leak detection in debug builds.
+struct CallbackContext<T> {
+    inner: Option<T>,
+    consumed: AtomicBool,
+    /// Unique ID for debugging
+    #[cfg(debug_assertions)]
+    id: usize,
+}
+
+impl<T> CallbackContext<T> {
+    fn new(inner: T) -> Self {
+        let _id = CALLBACK_CONTEXT_COUNT.fetch_add(1, Ordering::Relaxed);
+        #[cfg(debug_assertions)]
+        {
+            Self {
+                inner: Some(inner),
+                consumed: AtomicBool::new(false),
+                id: _id,
+            }
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            Self {
+                inner: Some(inner),
+                consumed: AtomicBool::new(false),
+            }
+        }
+    }
+}
+
+impl<T> Drop for CallbackContext<T> {
+    fn drop(&mut self) {
+        CALLBACK_CONTEXT_COUNT.fetch_sub(1, Ordering::Relaxed);
+        #[cfg(debug_assertions)]
+        {
+            let remaining = CALLBACK_CONTEXT_COUNT.load(Ordering::Relaxed);
+            if remaining > 10 {
+                tracing::warn!(remaining, "Callback contexts still allocated (potential leak)");
+            }
+        }
+    }
+}
+
+// Global mutex to serialize all FFI calls to Swift
+// Swift bridge has thread-safety issues when called concurrently from multiple Rust threads
+static FFI_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn get_ffi_lock() -> &'static Mutex<()> {
+    FFI_LOCK.get_or_init(|| Mutex::new(()))
+}
 
 #[link(name = "FluidAudioBridge")]
 extern "C" {
@@ -53,28 +111,54 @@ impl FluidAudio {
     pub async fn initialize(&self, model_path: Option<&str>) -> Result<(), String> {
         let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
         
-        let context = Box::into_raw(Box::new(tx)) as *mut c_void;
+        let ctx = CallbackContext::new(tx);
+        let context = Box::into_raw(Box::new(ctx)) as *mut c_void;
 
         unsafe extern "C" fn init_callback(
             success_ptr: *const c_char,
             error_ptr: *const c_char,
             context: *mut c_void,
         ) {
-            let tx = Box::from_raw(context as *mut tokio::sync::oneshot::Sender<Result<(), String>>);
+            if context.is_null() {
+                tracing::error!("Init callback: context is null");
+                return;
+            }
+            
+            let mut ctx = Box::from_raw(context as *mut CallbackContext<tokio::sync::oneshot::Sender<Result<(), String>>>);
+            
+            // Check if already consumed (double-call protection)
+            // Use SeqCst for maximum safety in FFI context
+            if ctx.consumed.swap(true, Ordering::SeqCst) {
+                tracing::warn!("Init callback called multiple times, ignoring");
+                // Don't leak - ctx will be properly dropped here since we own it.
+                // The first call already took ownership of inner, so drop is safe.
+                return;
+            }
+            
+            let tx = match ctx.inner.take() {
+                Some(t) => t,
+                None => {
+                    tracing::error!("Init callback: sender already taken");
+                    return;
+                }
+            };
             
             let result = if !error_ptr.is_null() {
                 let error_str = CStr::from_ptr(error_ptr).to_string_lossy().to_string();
-                eprintln!("FluidAudio init error: {}", error_str);
+                tracing::error!(error = %error_str, "FluidAudio init error");
                 Err(error_str)
             } else if !success_ptr.is_null() {
                 let success_str = CStr::from_ptr(success_ptr).to_string_lossy();
-                eprintln!("FluidAudio init success: {}", success_str);
+                tracing::info!(message = %success_str, "FluidAudio init success");
                 Ok(())
             } else {
                 Err("Invalid callback: both pointers null".to_string())
             };
             
-            let _ = tx.send(result);
+            if tx.send(result).is_err() {
+                tracing::warn!("Init callback: receiver dropped");
+            }
+            // ctx will be dropped here, cleaning up safely
         }
 
         let model_c_str = model_path
@@ -113,18 +197,40 @@ impl FluidAudio {
         }
 
         let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
-        let context = Box::into_raw(Box::new(tx)) as *mut c_void;
+        
+        let ctx = CallbackContext::new(tx);
+        let context = Box::into_raw(Box::new(ctx)) as *mut c_void;
 
         unsafe extern "C" fn transcribe_callback(
             text_ptr: *const c_char,
             error_ptr: *const c_char,
             context: *mut c_void,
         ) {
-            let tx = Box::from_raw(context as *mut tokio::sync::oneshot::Sender<Result<String, String>>);
+            if context.is_null() {
+                tracing::error!("Transcribe callback: context is null");
+                return;
+            }
+            
+            let mut ctx = Box::from_raw(context as *mut CallbackContext<tokio::sync::oneshot::Sender<Result<String, String>>>);
+            
+            // Check if already consumed (double-call protection)
+            if ctx.consumed.swap(true, Ordering::SeqCst) {
+                tracing::warn!("Transcribe callback called multiple times, ignoring");
+                // Don't leak - ctx will be properly dropped here since we own it.
+                return;
+            }
+            
+            let tx = match ctx.inner.take() {
+                Some(t) => t,
+                None => {
+                    tracing::error!("Transcribe callback: sender already taken");
+                    return;
+                }
+            };
             
             let result = if !error_ptr.is_null() {
                 let error_str = CStr::from_ptr(error_ptr).to_string_lossy().to_string();
-                eprintln!("FluidAudio transcription error: {}", error_str);
+                tracing::error!(error = %error_str, "FluidAudio transcription error");
                 Err(error_str)
             } else if !text_ptr.is_null() {
                 let text = CStr::from_ptr(text_ptr).to_string_lossy().to_string();
@@ -133,7 +239,9 @@ impl FluidAudio {
                 Err("Invalid callback: both pointers null".to_string())
             };
             
-            let _ = tx.send(result);
+            if tx.send(result).is_err() {
+                tracing::warn!("Transcribe callback: receiver dropped");
+            }
         }
 
         // Convert f32 to i16 PCM format and convert to bytes
@@ -179,6 +287,10 @@ impl FluidAudio {
             return Err("FluidAudio not initialized".to_string());
         }
         
+        if audio_data.is_empty() {
+            return Ok(0.0); // No data, no voice
+        }
+        
         let stream_id_c = CString::new(stream_id)
             .map_err(|e| format!("Invalid stream ID: {}", e))?;
         
@@ -191,12 +303,25 @@ impl FluidAudio {
         let byte_data = Box::pin(byte_data);
         let mut probability: f32 = 0.0;
         
+        // Safety: ensure pointers are valid before FFI call
+        let stream_ptr = stream_id_c.as_ptr();
+        let data_ptr = byte_data.as_ptr();
+        let data_len = byte_data.len();
+        let prob_ptr = &mut probability as *mut f32;
+        
+        if stream_ptr.is_null() || data_ptr.is_null() {
+            return Err("Invalid pointers for VAD process".to_string());
+        }
+        
+        // Lock to serialize FFI calls
+        let _ffi_guard = get_ffi_lock().lock().map_err(|e| format!("FFI lock poisoned: {}", e))?;
+        
         let success = unsafe {
             fluid_audio_vad_process(
-                stream_id_c.as_ptr(),
-                byte_data.as_ptr(),
-                byte_data.len(),
-                &mut probability as *mut f32,
+                stream_ptr,
+                data_ptr,
+                data_len,
+                prob_ptr,
             )
         };
         
@@ -212,6 +337,9 @@ impl FluidAudio {
         let stream_id_c = CString::new(stream_id)
             .map_err(|e| format!("Invalid stream ID: {}", e))?;
         
+        // Lock to serialize FFI calls
+        let _ffi_guard = get_ffi_lock().lock().map_err(|e| format!("FFI lock poisoned: {}", e))?;
+        
         let success = unsafe {
             fluid_audio_vad_create_state(stream_id_c.as_ptr())
         };
@@ -226,8 +354,11 @@ impl FluidAudio {
     /// Destroy VAD state for a stream
     pub fn vad_destroy_state(&self, stream_id: &str) {
         if let Ok(stream_id_c) = CString::new(stream_id) {
-            unsafe {
-                fluid_audio_vad_destroy_state(stream_id_c.as_ptr());
+            // Lock to serialize FFI calls
+            if let Ok(_ffi_guard) = get_ffi_lock().lock() {
+                unsafe {
+                    fluid_audio_vad_destroy_state(stream_id_c.as_ptr());
+                }
             }
         }
     }

@@ -18,13 +18,33 @@ func audioDataToFloatArray(_ data: Data) -> [Float] {
     private var models: AsrModels?
     private let modelVersion: AsrModelVersion = .v2 // English-only, faster
     
-    // VAD state tracking
-    var vadStates: [String: VadStreamState] = [:] // Key = stream ID
+    // VAD state tracking - use a thread-safe queue for access
+    private var vadStates: [String: VadStreamState] = [:] // Key = stream ID
+    private let vadStatesQueue = DispatchQueue(label: "com.noter.vadStates", attributes: .concurrent)
     
     @objc public static let shared = FluidAudioBridge()
     
     private override init() {
         super.init()
+    }
+    
+    // Thread-safe VAD state accessors
+    func getVadState(id: String) -> VadStreamState? {
+        return vadStatesQueue.sync {
+            return vadStates[id]
+        }
+    }
+    
+    func setVadState(id: String, state: VadStreamState) {
+        vadStatesQueue.sync(flags: .barrier) {
+            self.vadStates[id] = state
+        }
+    }
+    
+    func removeVadState(id: String) {
+        vadStatesQueue.sync(flags: .barrier) {
+            self.vadStates.removeValue(forKey: id)
+        }
     }
     
     @objc public func initialize(modelPath: String?, completion: @escaping (Bool, String?) -> Void) {
@@ -236,15 +256,20 @@ public func fluid_audio_vad_create_state(streamId: UnsafePointer<CChar>?) -> Boo
         return false
     }
     
+    print("Swift FluidAudio: Creating VAD state for stream: \(id)")
+    
     // Use DispatchGroup to wait for async state creation
     let group = DispatchGroup()
     var success = false
     
     group.enter()
     Task.detached(priority: .userInitiated) {
+        print("Swift FluidAudio: Task.detached started for: \(id)")
         let state = await vadManager.makeStreamState()
-        bridge.vadStates[id] = state
+        print("Swift FluidAudio: VAD state created, setting for: \(id)")
+        bridge.setVadState(id: id, state: state)
         success = true
+        print("Swift FluidAudio: VAD state set complete for: \(id)")
         group.leave()
     }
     
@@ -255,6 +280,7 @@ public func fluid_audio_vad_create_state(streamId: UnsafePointer<CChar>?) -> Boo
         return false
     }
     
+    print("Swift FluidAudio: VAD state creation success for: \(id)")
     return success
 }
 
@@ -266,13 +292,19 @@ public func fluid_audio_vad_process(
     outProbability: UnsafeMutablePointer<Float>?
 ) -> Bool {
     guard let streamId = streamId, let audioData = audioData, let outProbability = outProbability else {
+        print("Swift FluidAudio: VAD process - invalid parameters")
         return false
     }
     
     let id = String(cString: streamId)
     let bridge = FluidAudioBridge.shared
     
-    guard let vadManager = bridge.vadManager, var vadState = bridge.vadStates[id] else {
+    guard let vadManager = bridge.vadManager else {
+        print("Swift FluidAudio: VAD manager not initialized")
+        return false
+    }
+    
+    guard var vadState = bridge.getVadState(id: id) else {
         print("Swift FluidAudio: VAD state not found for \(id)")
         return false
     }
@@ -296,7 +328,7 @@ public func fluid_audio_vad_process(
             )
             
             vadState = result.state
-            bridge.vadStates[id] = vadState
+            bridge.setVadState(id: id, state: vadState)
             probability = result.probability
             success = true
         } catch {
@@ -320,5 +352,5 @@ public func fluid_audio_vad_process(
 public func fluid_audio_vad_destroy_state(streamId: UnsafePointer<CChar>?) {
     guard let streamId = streamId else { return }
     let id = String(cString: streamId)
-    FluidAudioBridge.shared.vadStates.removeValue(forKey: id)
+    FluidAudioBridge.shared.removeVadState(id: id)
 }

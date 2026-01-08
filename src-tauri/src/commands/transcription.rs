@@ -94,6 +94,7 @@ impl From<&TranscriptionEvent> for TranscriptionEventPayload {
 pub async fn start_transcription(
     app_handle: AppHandle,
     state: State<'_, RecorderState>,
+    meeting_id: String,
 ) -> Result<(), String> {
     let mut guard = state.inner.lock().await;
     if guard.is_some() {
@@ -115,6 +116,7 @@ pub async fn start_transcription(
         notify.clone(),
         result_state.clone(),
         event_tx,
+        meeting_id,
     );
 
     let events_handle = spawn_events_handler(app_handle.clone(), event_rx);
@@ -151,7 +153,7 @@ pub async fn stop_transcription(state: State<'_, RecorderState>) -> Result<(), S
         // Reset recorder for next use
         let mut recorder = state.recorder.lock().await;
         recorder.reset();
-        eprintln!("Recorder reset for next session");
+        tracing::debug!("Recorder reset for next session");
 
         result
     } else {
@@ -176,12 +178,13 @@ fn spawn_recorder_task(
     notify: Arc<Notify>,
     result_state: Arc<Mutex<Option<Result<(), String>>>>,
     event_tx: crossbeam_channel::Sender<TranscriptionEvent>,
+    meeting_id: String,
 ) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn_blocking(move || {
         tokio::runtime::Handle::current().block_on(async move {
             let mut recorder = recorder_arc.lock().await;
             let outcome = recorder
-                .start(Some(event_tx))
+                .start(Some(event_tx), Some(meeting_id))
                 .await
                 .map_err(|err| format!("{}", err));
 
@@ -198,7 +201,7 @@ fn spawn_events_handler(
     tauri::async_runtime::spawn_blocking(move || {
         while let Ok(event) = event_rx.recv() {
             if let Err(err) = emit_transcription_event(&app_handle, &event) {
-                eprintln!("Failed to emit transcription event: {err}");
+                tracing::debug!("Failed to emit transcription event: {err}");
             }
         }
     })
