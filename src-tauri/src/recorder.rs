@@ -100,21 +100,6 @@ impl AudioRecorder {
         events_tx: Option<Sender<TranscriptionEvent>>,
         meeting_id: Option<String>,
     ) -> Result<()> {
-        // Check Screen Recording permission (required for speaker/system audio)
-        #[cfg(target_os = "macos")]
-        {
-            let has_screen_recording = crate::permissions::check_screen_recording_permission();
-            if has_screen_recording {
-                tracing::info!("✅ Screen Recording permission granted");
-            } else {
-                tracing::warn!("⚠️ Screen Recording permission NOT granted!");
-                tracing::warn!("   Speaker/system audio will be SILENT.");
-                tracing::warn!("   Please enable in: System Settings > Privacy & Security > Screen Recording");
-                // Request permission (this will open System Settings)
-                crate::permissions::request_screen_recording_permission();
-            }
-        }
-        
         // Check if mic is available (but don't create it yet)
         let has_mic = Mic::new().is_ok();
         

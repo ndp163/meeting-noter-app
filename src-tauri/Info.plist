@@ -6,12 +6,8 @@
     <key>NSMicrophoneUsageDescription</key>
     <string>Noter needs access to your microphone to transcribe meeting audio.</string>
     
-    <!-- Screen recording usage description (for system audio capture) -->
-    <key>NSScreenCaptureUsageDescription</key>
-    <string>Noter needs screen recording permission to capture system audio from meetings.</string>
-    
     <!-- Audio recording usage description -->
-    <key>NSAudioRecordingUsageDescription</key>
+    <key>NSAudioCaptureUsageDescription</key>
     <string>Noter needs to record audio to transcribe your meetings.</string>
 </dict>
 </plist>
