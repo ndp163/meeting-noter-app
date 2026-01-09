@@ -4,7 +4,6 @@ mod commands;
 mod config;
 pub mod logging;
 pub mod paths;
-pub mod permissions;
 mod recorder;
 mod types;
 
@@ -12,7 +11,6 @@ use anyhow::Result;
 use commands::{
     start_transcription, stop_transcription, transcription_status, RecorderState,
     get_meetings, get_meeting_detail, save_meeting, delete_meeting, get_meeting_audio_path,
-    check_permissions, check_screen_recording, request_screen_recording, open_permission_settings,
 };
 
 pub use config::AudioConfig;
@@ -38,10 +36,6 @@ pub async fn run() -> Result<()> {
             save_meeting,
             delete_meeting,
             get_meeting_audio_path,
-            check_permissions,
-            check_screen_recording,
-            request_screen_recording,
-            open_permission_settings,
         ])
         .run(tauri::generate_context!())
         .map_err(|e| anyhow::anyhow!(e))

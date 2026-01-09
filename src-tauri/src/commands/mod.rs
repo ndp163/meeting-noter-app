@@ -1,6 +1,5 @@
 mod transcription;
 mod meetings;
-mod permissions;
 
 pub use transcription::{
     start_transcription, 
@@ -17,9 +16,3 @@ pub use meetings::{
     get_meeting_audio_path,
 };
 
-pub use permissions::{
-    check_permissions,
-    check_screen_recording,
-    request_screen_recording,
-    open_permission_settings,
-};
