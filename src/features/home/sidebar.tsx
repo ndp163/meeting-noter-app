@@ -53,7 +53,7 @@ export const Sidebar = ({
       </button>
 
       {/* Meetings List */}
-      <div className="flex flex-col gap-2.5 overflow-y-auto flex-1">
+      <div className="flex flex-col gap-2.5 overflow-y-auto px-2">
         {meetings.length === 0 ? (
           <div className="text-center text-custom-text-secondary text-sm p-4">
             No meetings yet. Click + to create a new meeting.

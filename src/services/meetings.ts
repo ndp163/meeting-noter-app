@@ -2,7 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { Meeting } from "@/store/meetings.slice";
 
 export const getMeetings = async (): Promise<Meeting[]> => {
-  return await invoke<Meeting[]>("get_meetings");
+  const meetings = await invoke<Meeting[]>("get_meetings");
+  const firstMeeting = meetings[0];
+  if (firstMeeting && firstMeeting.status === "recording") {
+    meetings.shift();
+    await deleteMeeting(firstMeeting.id);
+  }
+  return meetings;
 };
 
 export const getMeetingDetail = async (meetingId: string): Promise<Meeting> => {
