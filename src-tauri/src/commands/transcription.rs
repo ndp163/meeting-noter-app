@@ -213,7 +213,7 @@ fn spawn_cleanup_watcher(app_handle: AppHandle, session_id: u64, notify: Arc<Not
 
         let state_ref = app_handle.state::<RecorderState>();
         let mut guard = state_ref.inner.lock().await;
-        
+
         if let Some(session) = guard.as_ref() {
             if session.id == session_id {
                 guard.take();

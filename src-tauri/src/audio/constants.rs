@@ -47,8 +47,8 @@ pub const MIN_TRANSCRIPTION_CHUNK_16K: usize = SAMPLE_RATE_16KHZ as usize; // 16
 /// After this duration, we force a batch finalization
 pub const MAX_TRANSCRIPTION_BUFFER_16K: usize = SAMPLE_RATE_16KHZ as usize * 8; // 128000 samples
 
-/// Duration that triggers batch finalization at 16kHz (8 seconds)
-pub const BATCH_FINAL_DURATION_16K: usize = SAMPLE_RATE_16KHZ as usize * 8;
+/// Duration that triggers batch finalization at 16kHz (4 seconds)
+pub const BATCH_FINAL_DURATION_16K: usize = SAMPLE_RATE_16KHZ as usize * 4;
 
 // =============================================================================
 // VAD (VOICE ACTIVITY DETECTION) SETTINGS
@@ -135,10 +135,10 @@ mod tests {
     fn test_buffer_sizes_are_reasonable() {
         // Batch final should be >= min chunk size
         assert!(BATCH_FINAL_DURATION_16K >= MIN_TRANSCRIPTION_CHUNK_16K);
-        
+
         // Max buffer should be >= batch final
         assert!(MAX_TRANSCRIPTION_BUFFER_16K >= BATCH_FINAL_DURATION_16K);
-        
+
         // VAD thresholds should be ordered
         assert!(VAD_THRESHOLD_WEAK < VAD_THRESHOLD_STRONG);
     }
