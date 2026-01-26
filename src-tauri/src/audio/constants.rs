@@ -48,19 +48,13 @@ pub const MIN_TRANSCRIPTION_CHUNK_16K: usize = SAMPLE_RATE_16KHZ as usize; // 16
 pub const MAX_TRANSCRIPTION_BUFFER_16K: usize = SAMPLE_RATE_16KHZ as usize * 8; // 128000 samples
 
 /// Duration that triggers batch finalization at 16kHz (4 seconds)
-pub const BATCH_FINAL_DURATION_16K: usize = SAMPLE_RATE_16KHZ as usize * 4;
+pub const MIN_TRANSCRIPTION_RESULT_16K: usize = SAMPLE_RATE_16KHZ as usize * 4;
 
 // =============================================================================
 // VAD (VOICE ACTIVITY DETECTION) SETTINGS
 // =============================================================================
 
-/// Strong voice probability threshold
-/// Above this value, we're confident there's speech
-pub const VAD_THRESHOLD_STRONG: f32 = 0.35;
-
-/// Weak voice probability threshold  
-/// Between weak and strong, there might be speech (used for continuation)
-pub const VAD_THRESHOLD_WEAK: f32 = 0.25;
+pub const VAD_THRESHOLD: f32 = 0.8;
 
 /// Number of silence frames before ending speech segment
 /// At ~0.25s per chunk, 8 frames ≈ 2 seconds of silence
