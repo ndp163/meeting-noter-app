@@ -338,7 +338,7 @@ impl TaskManager {
 
         tokio::task::spawn(async move {
             tokio::select! {
-                _ = crate::audio::transcription::vad_batch_transcription_task(
+                _ = crate::audio::transcription::vad_transcription_task(
                     mic_rx,
                     engine_mic,
                     move |result| {
@@ -364,7 +364,7 @@ impl TaskManager {
         let cancel_speaker = self.cancel_token.clone();
         tokio::task::spawn(async move {
             tokio::select! {
-                _ = crate::audio::transcription::vad_batch_transcription_task(
+                _ = crate::audio::transcription::vad_transcription_task(
                     speaker_rx,
                     engine,
                     move |result| {

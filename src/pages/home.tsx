@@ -24,11 +24,12 @@ import type { TranscriptMessage } from "@/store/meetings.slice";
 
 export const HomePage = () => {
   const [activeTab, setActiveTab] = useState<"transcript" | "summary">(
-    "transcript"
+    "transcript",
   );
   const [isCapturing, setIsCapturing] = useState(false);
   const [isCaptureBusy, setIsCaptureBusy] = useState(false);
   const [audioPath, setAudioPath] = useState<string>();
+  const [isAutoScroll, setIsAutoScroll] = useState(true);
 
   // Zustand store
   const meetings = useBoundStore.use.meetings();
@@ -120,7 +121,7 @@ export const HomePage = () => {
         "is_result_final:",
         payload.is_result_final,
         "is_sentence_final:",
-        payload.is_sentence_final
+        payload.is_sentence_final,
       );
 
       const meeting = getCapturingMeeting();
@@ -206,9 +207,29 @@ export const HomePage = () => {
     updateTranscriptInMeeting,
   ]);
 
+  useEffect(() => {
+    console.log(!contentAreaRef.current || !messagesEndRef.current);
+    if (!contentAreaRef.current || !messagesEndRef.current) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        console.log("Messages end intersection:", entry.isIntersecting);
+        setIsAutoScroll(entry.isIntersecting);
+      },
+      {
+        root: contentAreaRef.current,
+        threshold: 0,
+      },
+    );
+
+    observer.observe(messagesEndRef.current);
+
+    return () => observer.disconnect();
+  }, [contentAreaRef.current, messagesEndRef.current]);
+
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    if (messages.length > 0 && messagesEndRef.current) {
+    if (messagesEndRef.current && isAutoScroll) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
@@ -351,7 +372,7 @@ export const HomePage = () => {
                 "h-2 w-2 rounded-full",
                 isCapturing
                   ? "bg-custom-red animate-pulse"
-                  : "bg-custom-bg-secondary"
+                  : "bg-custom-bg-secondary",
               )}
             />
             {isCapturing ? "Listening" : "Idle"}
@@ -384,8 +405,8 @@ export const HomePage = () => {
                   {isCapturing
                     ? "Listening for speech..."
                     : currentMeetingId
-                    ? "No transcript yet. Press Start Capture to begin recording."
-                    : "Create a new meeting or select an existing one to get started."}
+                      ? "No transcript yet. Press Start Capture to begin recording."
+                      : "Create a new meeting or select an existing one to get started."}
                 </div>
               )
             ) : (
@@ -404,7 +425,7 @@ export const HomePage = () => {
 };
 
 const mapPayloadToMessage = (
-  payload: TranscriptionEventPayload
+  payload: TranscriptionEventPayload,
 ): TranscriptMessage => {
   const generatedId =
     typeof crypto !== "undefined" && "randomUUID" in crypto
