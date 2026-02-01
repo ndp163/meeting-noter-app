@@ -3,11 +3,10 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 use crate::audio::{
-    Mic,
-    Speaker,
     processing::mixer,
     streams::{MicStreamHandler, SpeakerStreamHandler},
-    transcription::{vad_batch_transcription_task, TranscriptionResult},
+    transcription::{vad_transcription_task, TranscriptionResult},
+    Mic, Speaker,
 };
 use crate::bridges::FluidAudio;
 use crate::config::AudioConfig;
@@ -18,7 +17,7 @@ use crossbeam_channel::Sender;
 type Engine = Arc<FluidAudio>;
 
 /// Manages the audio recording and transcription system
-/// 
+///
 /// Orchestrates:
 /// - FluidAudio transcription engine initialization
 /// - Separate mic and speaker audio streams
@@ -88,7 +87,7 @@ impl AudioRecorder {
     }
 
     /// Start recording and transcription
-    /// 
+    ///
     /// This will:
     /// 1. Initialize transcription engine (if not already done)
     /// 2. Start mic and speaker capture
@@ -102,18 +101,21 @@ impl AudioRecorder {
     ) -> Result<()> {
         // Check if mic is available (but don't create it yet)
         let has_mic = Mic::new().is_ok();
-        
+
         if has_mic {
             tracing::info!("Microphone available");
         } else {
             tracing::warn!("Microphone not available - continuing with speaker only");
         }
-        
+
         // Use standard macOS audio sample rate (48kHz) for WAV file
         // We cannot create Speaker twice (once to detect, once to stream) as it causes TAP device conflicts
         // macOS system audio typically runs at 48kHz, which is perfect for high-quality recording
         let output_sample_rate = 48000u32;
-        tracing::info!(sample_rate = output_sample_rate, "Using macOS standard sample rate for WAV");
+        tracing::info!(
+            sample_rate = output_sample_rate,
+            "Using macOS standard sample rate for WAV"
+        );
         tracing::debug!("Audio will be resampled to 16kHz for transcription");
 
         // Now we can safely await
@@ -128,14 +130,20 @@ impl AudioRecorder {
         }
 
         // Setup channels
-        let (audio_tx, audio_rx, mic_tx, mic_rx, speaker_tx, speaker_rx) = 
+        let (audio_tx, audio_rx, mic_tx, mic_rx, speaker_tx, speaker_rx) =
             self.create_channels(output_sample_rate);
 
         // Start background tasks
         self.spawn_mixer_task(audio_rx, output_sample_rate, meeting_id);
         // For transcription, we'll use the actual speaker sample rate (since mic may not exist)
         // If mic exists, it typically has the same or similar sample rate
-        self.spawn_transcription_tasks(mic_rx, speaker_rx, events_tx, output_sample_rate, output_sample_rate);
+        self.spawn_transcription_tasks(
+            mic_rx,
+            speaker_rx,
+            events_tx,
+            output_sample_rate,
+            output_sample_rate,
+        );
 
         // Run audio streams
         self.run_streams(
@@ -144,7 +152,8 @@ impl AudioRecorder {
             mic_tx,
             speaker_tx,
             audio_tx,
-        ).await?;
+        )
+        .await?;
 
         Ok(())
     }
@@ -170,8 +179,10 @@ impl AudioRecorder {
 
         match tokio::time::timeout(
             std::time::Duration::from_secs(self.config.init_timeout_secs),
-            fluid.initialize(None) // FluidAudio doesn't use model path
-        ).await {
+            fluid.initialize(None), // FluidAudio doesn't use model path
+        )
+        .await
+        {
             Ok(Ok(_)) => {
                 tracing::info!("FluidAudio initialized successfully");
                 self.engine = Some(fluid);
@@ -235,17 +246,28 @@ impl AudioRecorder {
     ) {
         if let Some(ref engine) = self.engine {
             tracing::info!("Starting transcription tasks with FluidAudio...");
-            tracing::debug!("   Mic sample rate: {}Hz, Speaker sample rate: {}Hz", mic_sample_rate, speaker_sample_rate);
-            
+            tracing::debug!(
+                "   Mic sample rate: {}Hz, Speaker sample rate: {}Hz",
+                mic_sample_rate,
+                speaker_sample_rate
+            );
+
             // Use VAD-batch transcription like RealTimeMicTest
-            self.spawn_vad_batch_tasks(engine.clone(), mic_rx, speaker_rx, events_tx, mic_sample_rate, speaker_sample_rate);
+            self.spawn_vad_batch_tasks(
+                engine.clone(),
+                mic_rx,
+                speaker_rx,
+                events_tx,
+                mic_sample_rate,
+                speaker_sample_rate,
+            );
         } else {
-            tracing::warn!("Transcription engine not initialized - transcription tasks will NOT run!");
+            tracing::warn!(
+                "Transcription engine not initialized - transcription tasks will NOT run!"
+            );
             tracing::debug!("    Audio will still be recorded, but no transcription will occur.");
         }
     }
-
-
 
     /// Spawn VAD-guided batch transcription tasks for FluidAudio (like RealTimeMicTest)
     fn spawn_vad_batch_tasks(
@@ -264,7 +286,7 @@ impl AudioRecorder {
         tokio::task::spawn(async move {
             tracing::info!("Mic transcription task started");
             tokio::select! {
-                _ = vad_batch_transcription_task(mic_rx, mic_sample_rate, engine_mic, move |result| {
+                _ = vad_transcription_task(mic_rx, mic_sample_rate, engine_mic, move |result| {
                     if let Some(tx) = mic_events.as_ref() {
                         let _ = tx.send(TranscriptionEvent::new(TranscriptionSource::Mic, result.clone()));
                     }
@@ -290,23 +312,23 @@ impl AudioRecorder {
         tokio::task::spawn(async move {
             tracing::info!("Speaker transcription task started");
             tokio::select! {
-                _ = vad_batch_transcription_task(speaker_rx, speaker_sample_rate, engine_speaker, move |result| {
-                        if let Some(tx) = speaker_events.as_ref() {
-                            let _ = tx.send(TranscriptionEvent::new(TranscriptionSource::Speaker, result.clone()));
-                        }
+            _ = vad_transcription_task(speaker_rx, speaker_sample_rate, engine_speaker, move |result| {
+                    if let Some(tx) = speaker_events.as_ref() {
+                        let _ = tx.send(TranscriptionEvent::new(TranscriptionSource::Speaker, result.clone()));
+                    }
 
-                        if result.is_result_final {
-                            println!("✅ 🔊 Speaker (FINAL): {}", result.text);
-                        } else {
-                            println!("📝 🔊 Speaker (partial): {}", result.text);
-                        }
-                    }) => {
-                        tracing::debug!("Speaker transcription task completed");
+                    if result.is_result_final {
+                        println!("✅ 🔊 Speaker (FINAL): {}", result.text);
+                    } else {
+                        println!("📝 🔊 Speaker (partial): {}", result.text);
                     }
-                    _ = cancel_speaker.cancelled() => {
-                        tracing::debug!("Speaker transcription task cancelled");
-                    }
+                }) => {
+                    tracing::debug!("Speaker transcription task completed");
                 }
+                _ = cancel_speaker.cancelled() => {
+                    tracing::debug!("Speaker transcription task cancelled");
+                }
+            }
         });
     }
 
@@ -326,17 +348,17 @@ impl AudioRecorder {
 
         // Solution: Create and run streams in separate OS threads
         // This prevents CoreAudio conflicts by isolating their thread-local state
-        
+
         if has_mic {
             tracing::info!("Starting speaker and mic in separate OS threads...");
-            
+
             let mic_cancel = self.cancel_token.clone();
             let audio_tx_mic = audio_tx.clone();
-            
+
             // Spawn speaker in dedicated OS thread
             let speaker_thread = std::thread::spawn(move || {
                 tracing::info!("Speaker thread started");
-                
+
                 // Create speaker inside thread
                 let speaker = match Speaker::new() {
                     Ok(s) => s,
@@ -346,28 +368,31 @@ impl AudioRecorder {
                     }
                 };
                 let speaker_handler = SpeakerStreamHandler::new(speaker, chunk_size);
-                
+
                 let rt = match tokio::runtime::Builder::new_current_thread()
                     .enable_all()
-                    .build() {
+                    .build()
+                {
                     Ok(rt) => rt,
                     Err(e) => {
                         tracing::error!("Failed to create speaker runtime: {}", e);
                         return Err(anyhow::anyhow!("Failed to create speaker runtime: {}", e));
                     }
                 };
-                
+
                 let result = rt.block_on(async {
-                    speaker_handler.run(speaker_tx, audio_tx_speaker, speaker_cancel).await
+                    speaker_handler
+                        .run(speaker_tx, audio_tx_speaker, speaker_cancel)
+                        .await
                 });
                 tracing::info!("Speaker thread finished: {:?}", result);
                 result
             });
-            
+
             // Spawn mic in dedicated OS thread
             let mic_thread = std::thread::spawn(move || {
                 tracing::info!("Mic thread started");
-                
+
                 // Create mic inside thread
                 let mic = match Mic::new() {
                     Ok(m) => m,
@@ -377,26 +402,26 @@ impl AudioRecorder {
                     }
                 };
                 let mic_handler = MicStreamHandler::new(mic, chunk_size);
-                
+
                 let rt = match tokio::runtime::Builder::new_current_thread()
                     .enable_all()
-                    .build() {
+                    .build()
+                {
                     Ok(rt) => rt,
                     Err(e) => {
                         tracing::error!("Failed to create mic runtime: {}", e);
                         return Err(anyhow::anyhow!("Failed to create mic runtime: {}", e));
                     }
                 };
-                
-                let result = rt.block_on(async {
-                    mic_handler.run(mic_tx, audio_tx_mic, mic_cancel).await
-                });
+
+                let result =
+                    rt.block_on(async { mic_handler.run(mic_tx, audio_tx_mic, mic_cancel).await });
                 tracing::info!("Mic thread finished: {:?}", result);
                 result
             });
-            
+
             tracing::info!("Both threads spawned, waiting for completion...");
-            
+
             // Wait for both threads to complete with timeout protection
             tokio::task::spawn_blocking(move || {
                 match speaker_thread.join() {
@@ -404,24 +429,24 @@ impl AudioRecorder {
                     Ok(Err(e)) => tracing::error!("Speaker thread error: {:?}", e),
                     Err(e) => tracing::error!("Speaker thread panicked: {:?}", e),
                 }
-                
+
                 match mic_thread.join() {
                     Ok(Ok(_)) => tracing::info!("Mic thread completed successfully"),
                     Ok(Err(e)) => tracing::error!("Mic thread error: {:?}", e),
                     Err(e) => tracing::error!("Mic thread panicked: {:?}", e),
                 }
-            }).await?;
-            
+            })
+            .await?;
         } else {
             // No mic, just run speaker in separate thread
             tracing::info!("Running speaker stream only...");
             drop(mic_tx);
             drop(audio_tx);
-            
+
             tokio::task::spawn_blocking(move || {
                 let speaker_thread = std::thread::spawn(move || {
                     tracing::info!("Speaker thread started");
-                    
+
                     let speaker = match Speaker::new() {
                         Ok(s) => s,
                         Err(e) => {
@@ -430,33 +455,37 @@ impl AudioRecorder {
                         }
                     };
                     let speaker_handler = SpeakerStreamHandler::new(speaker, chunk_size);
-                    
+
                     let rt = match tokio::runtime::Builder::new_current_thread()
                         .enable_all()
-                        .build() {
+                        .build()
+                    {
                         Ok(rt) => rt,
                         Err(e) => {
                             tracing::error!("Failed to create speaker runtime: {}", e);
                             return Err(anyhow::anyhow!("Failed to create speaker runtime: {}", e));
                         }
                     };
-                    
+
                     let result = rt.block_on(async {
-                        speaker_handler.run(speaker_tx, audio_tx_speaker, speaker_cancel).await
+                        speaker_handler
+                            .run(speaker_tx, audio_tx_speaker, speaker_cancel)
+                            .await
                     });
                     tracing::info!("Speaker thread finished: {:?}", result);
                     result
                 });
-                
+
                 let _ = speaker_thread.join().map_err(|e| {
                     tracing::error!("Speaker-only thread panicked: {:?}", e);
                 });
-            }).await?;
+            })
+            .await?;
         }
 
         // Explicitly drop senders to close channels and signal downstream tasks to stop
         tracing::debug!("Closing audio channels...");
-        
+
         Ok(())
     }
 }

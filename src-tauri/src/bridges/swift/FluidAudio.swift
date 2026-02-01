@@ -27,26 +27,26 @@ func audioDataToFloatArray(_ data: Data) -> [Float] {
     private override init() {
         super.init()
     }
-    
+
     // Thread-safe VAD state accessors
     func getVadState(id: String) -> VadStreamState? {
         return vadStatesQueue.sync {
             return vadStates[id]
         }
     }
-    
+
     func setVadState(id: String, state: VadStreamState) {
         vadStatesQueue.sync(flags: .barrier) {
             self.vadStates[id] = state
         }
     }
-    
+
     func removeVadState(id: String) {
         vadStatesQueue.sync(flags: .barrier) {
             self.vadStates.removeValue(forKey: id)
         }
     }
-    
+
     @objc public func initialize(modelPath: String?, completion: @escaping (Bool, String?) -> Void) {
         print("Swift FluidAudio: Starting initialization")
         Task {
@@ -76,7 +76,7 @@ func audioDataToFloatArray(_ data: Data) -> [Float] {
             }
         }
     }
-    
+
     @objc public func transcribe(audioData: Data, completion: @escaping (String?, String?) -> Void) {
         guard let asrManager = asrManager else {
             completion(nil, "FluidAudio not initialized")
@@ -97,7 +97,7 @@ func audioDataToFloatArray(_ data: Data) -> [Float] {
             }
         }
     }
-    
+
     @objc public func transcribeStream(audioData: Data, completion: @escaping (String?, String?) -> Void) {
         guard let asrManager = asrManager, let vadManager = vadManager else {
             completion(nil, "FluidAudio not initialized")
