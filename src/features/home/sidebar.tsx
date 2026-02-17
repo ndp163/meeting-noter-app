@@ -1,6 +1,7 @@
-import { Mic, Square, Trash2 } from "lucide-react";
+import { Mic, Square, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Meeting } from "@/store/meetings.slice";
+import { useBoundStore } from "@/store";
 
 interface SidebarProps {
   meetings: Meeting[];
@@ -21,13 +22,34 @@ export const Sidebar = ({
   isCapturing,
   isCaptureBusy,
 }: SidebarProps) => {
+  const isSidebarCollapsed = useBoundStore.use.isSidebarCollapsed();
+  const toggleSidebar = useBoundStore.use.toggleSidebar();
+
   return (
-    <div className="flex flex-col gap-2.5 w-full max-w-[411px] h-screen px-2.5 py-5">
+    <div
+      className={cn(
+        "flex flex-col gap-2.5 h-screen px-2.5 py-5",
+        isSidebarCollapsed ? "w-16" : "w-full max-w-[411px]",
+      )}
+    >
       {/* Header */}
       <div className="flex items-center justify-between h-[78px] px-5 py-[23px]">
-        <h1 className="text-xl font-bold text-custom-text-highlight">
-          Meeting Noter
-        </h1>
+        {!isSidebarCollapsed && (
+          <h1 className="text-xl font-bold text-custom-text-highlight">
+            Meeting Noter
+          </h1>
+        )}
+        <button
+          onClick={toggleSidebar}
+          className="p-2 hover:bg-gray-100 rounded-lg"
+          title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {isSidebarCollapsed ? (
+            <ChevronRight className="w-5 h-5" />
+          ) : (
+            <ChevronLeft className="w-5 h-5" />
+          )}
+        </button>
       </div>
 
       {/* Start Capture Button */}
@@ -35,26 +57,35 @@ export const Sidebar = ({
         onClick={onToggleCapture}
         disabled={isCaptureBusy}
         className={cn(
-          "flex flex-col gap-1 items-center justify-center h-[77px] p-4 border-2 border-dashed rounded-[10px] transition-colors",
+          "flex flex-col gap-1 items-center justify-center h-[77px] p-4 border-2 border-dashed rounded-[10px]",
           isCapturing
             ? "bg-custom-red text-white border-custom-red"
             : "border-custom-red text-custom-red hover:bg-custom-red/5",
-          isCaptureBusy && "opacity-50 cursor-not-allowed"
+          isCaptureBusy && "opacity-50 cursor-not-allowed",
         )}
+        title={
+          isSidebarCollapsed
+            ? isCapturing
+              ? "Stop Capture"
+              : "Start Capture"
+            : undefined
+        }
       >
         {isCapturing ? (
           <Square className="w-6 h-6" />
         ) : (
           <Mic className="w-6 h-6" />
         )}
-        <span className="text-sm font-medium">
-          {isCapturing ? "Stop Capture" : "Start Capture"}
-        </span>
+        {!isSidebarCollapsed && (
+          <span className="text-sm font-medium">
+            {isCapturing ? "Stop Capture" : "Start Capture"}
+          </span>
+        )}
       </button>
 
       {/* Meetings List */}
       <div className="flex flex-col gap-2.5 overflow-y-auto px-2">
-        {meetings.length === 0 ? (
+        {!isSidebarCollapsed && meetings.length === 0 ? (
           <div className="text-center text-custom-text-secondary text-sm p-4">
             No meetings yet. Click + to create a new meeting.
           </div>
@@ -66,6 +97,7 @@ export const Sidebar = ({
               isActive={meeting.id === activeMeetingId}
               onClick={() => onMeetingSelect(meeting.id)}
               onDelete={() => onDeleteMeeting(meeting.id)}
+              isCollapsed={isSidebarCollapsed}
             />
           ))
         )}
@@ -79,6 +111,7 @@ interface MeetingCardProps {
   isActive: boolean;
   onClick: () => void;
   onDelete: () => void;
+  isCollapsed: boolean;
 }
 
 const MeetingCard = ({
@@ -86,6 +119,7 @@ const MeetingCard = ({
   isActive,
   onClick,
   onDelete,
+  isCollapsed,
 }: MeetingCardProps) => {
   const formatDate = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -102,12 +136,31 @@ const MeetingCard = ({
     onDelete();
   };
 
+  if (isCollapsed) {
+    return (
+      <div
+        onClick={onClick}
+        className={cn(
+          "flex items-center justify-center min-h-[40px] p-2 rounded-[10px] cursor-pointer relative",
+          isActive ? "bg-custom-bg-primary" : "hover:bg-custom-bg-secondary",
+        )}
+        title={meeting.title}
+      >
+        {meeting.status === "recording" ? (
+          <div className="w-2 h-2 rounded-full bg-custom-red animate-pulse" />
+        ) : (
+          <div className="w-2 h-2 rounded-full bg-custom-text-primary" />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div
       onClick={onClick}
       className={cn(
-        "flex flex-col gap-2.5 items-start justify-center min-h-[79px] p-2.5 rounded-[10px] w-full text-left transition-colors relative group cursor-pointer",
-        isActive ? "bg-custom-bg-primary" : "hover:bg-custom-bg-secondary"
+        "flex flex-col gap-2.5 items-start justify-center min-h-[79px] p-2.5 rounded-[10px] w-full text-left relative group cursor-pointer",
+        isActive ? "bg-custom-bg-primary" : "hover:bg-custom-bg-secondary",
       )}
     >
       <div className="flex items-center justify-between w-full">
@@ -128,7 +181,7 @@ const MeetingCard = ({
         {meeting.status !== "recording" && (
           <button
             onClick={handleDelete}
-            className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-custom-red/10 transition-all"
+            className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-custom-red/10"
             title="Delete meeting"
           >
             <Trash2 className="w-4 h-4 text-custom-red" />
