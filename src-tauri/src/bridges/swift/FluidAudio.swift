@@ -4,8 +4,8 @@ import FluidAudio
 // C callback type for Rust FFI
 public typealias FluidAudioCallback = @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafeMutableRawPointer?) -> Void
 
-// Helper function to convert Data to Float array
-func audioDataToFloatArray(_ data: Data) -> [Float] {
+// Reinterprets raw bytes as little-endian Float32 samples (used by VAD).
+func bytesToFloat32(_ data: Data) -> [Float] {
     let count = data.count / MemoryLayout<Float>.size
     var array = [Float](repeating: 0, count: count)
     _ = array.withUnsafeMutableBytes { data.copyBytes(to: $0) }
@@ -85,10 +85,9 @@ func audioDataToFloatArray(_ data: Data) -> [Float] {
         
         Task {
             do {
-                // Convert audio data to format expected by FluidAudio
-                let audioArray = audioDataToFloatArray(audioData)
-                
-                // Perform transcription
+                // Transcription input arrives as 16-bit PCM bytes.
+                let audioArray = pcm16ToFloat(audioData)
+
                 let result = try await asrManager.transcribe(audioArray)
                 
                 completion(result.text, nil)
@@ -98,47 +97,8 @@ func audioDataToFloatArray(_ data: Data) -> [Float] {
         }
     }
 
-    @objc public func transcribeStream(audioData: Data, completion: @escaping (String?, String?) -> Void) {
-        guard let asrManager = asrManager, let vadManager = vadManager else {
-            completion(nil, "FluidAudio not initialized")
-            return
-        }
-        
-        Task {
-            do {
-                let audioArray = audioDataToFloatArray(audioData)
-                
-                // Use VAD to detect speech segments
-                var segmentConfig = VadSegmentationConfig.default
-                segmentConfig.minSpeechDuration = 0.3  // At least 0.3s of speech
-                segmentConfig.minSilenceDuration = 0.2  // 0.2s silence to split
-                segmentConfig.speechPadding = 0.1  // Add 0.1s padding
-                
-                let speechSegments = try await vadManager.segmentSpeech(audioArray, config: segmentConfig)
-                
-                // Transcribe each speech segment
-                var allTranscriptions: [String] = []
-                for segment in speechSegments {
-                    let startSample = Int(segment.startTime * 16000)
-                    let endSample = Int(segment.endTime * 16000)
-                    let segmentSamples = Array(audioArray[startSample..<min(endSample, audioArray.count)])
-                    
-                    let result = try await asrManager.transcribe(segmentSamples)
-                    if !result.text.isEmpty {
-                        allTranscriptions.append(result.text)
-                    }
-                }
-                
-                let combinedText = allTranscriptions.joined(separator: " ")
-                completion(combinedText, nil)
-            } catch {
-                completion(nil, error.localizedDescription)
-            }
-        }
-    }
-    
-    private func audioDataToFloatArray(_ data: Data) -> [Float] {
-        // Assuming 16-bit PCM audio data
+    // Reinterprets raw bytes as 16-bit PCM and normalizes to Float [-1, 1].
+    private func pcm16ToFloat(_ data: Data) -> [Float] {
         let int16Array = data.withUnsafeBytes { buffer in
             Array(buffer.bindMemory(to: Int16.self))
         }
@@ -205,32 +165,6 @@ public func fluid_audio_transcribe(
             free(textStr)
         } else {
             let errorMsg = error ?? "Transcription failed"
-            let errorStr = strdup(errorMsg)
-            callback(nil, errorStr, context)
-            free(errorStr)
-        }
-    }
-}
-
-@_cdecl("fluid_audio_transcribe_stream")
-public func fluid_audio_transcribe_stream(
-    audioData: UnsafePointer<UInt8>?,
-    dataLen: Int,
-    callback: FluidAudioCallback?,
-    context: UnsafeMutableRawPointer?
-) {
-    guard let audioData = audioData, let callback = callback else { return }
-    
-    let data = Data(bytes: audioData, count: dataLen)
-    let bridge = FluidAudioBridge.shared
-    
-    bridge.transcribeStream(audioData: data) { text, error in
-        if let text = text {
-            let textStr = strdup(text)
-            callback(textStr, nil, context)
-            free(textStr)
-        } else {
-            let errorMsg = error ?? "Stream transcription failed"
             let errorStr = strdup(errorMsg)
             callback(nil, errorStr, context)
             free(errorStr)
@@ -310,7 +244,7 @@ public func fluid_audio_vad_process(
     }
     
     let data = Data(bytes: audioData, count: dataLen)
-    let audioArray = audioDataToFloatArray(data)
+    let audioArray = bytesToFloat32(data)
     
     // Use DispatchGroup instead of semaphore to avoid deadlock
     let group = DispatchGroup()

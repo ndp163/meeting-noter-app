@@ -1,135 +1,82 @@
-# Transcription Engine Guide
+# Transcription Engines
 
-Ứng dụng này hỗ trợ 2 transcription engines:
+## Hiện tại
 
-## 1. FluidAudio (Mặc định - Recommended ⭐)
-- **Model**: NVIDIA Parakeet ASR với VAD tích hợp
-- **Ưu điểm**: 
-  - Nhanh hơn và chính xác hơn WhisperKit
-  - VAD (Voice Activity Detection) tốt hơn
-  - Hỗ trợ real-time streaming tốt
-  - Latency thấp hơn
-- **Nhược điểm**: Chỉ hỗ trợ tiếng Anh
+App dùng **FluidAudio** (NVIDIA Parakeet ASR + Silero VAD), chạy on-device qua
+Swift bridge. Chỉ hỗ trợ tiếng Anh, nhưng nhanh và độ chính xác cao.
 
-## 2. WhisperKit (Argmax)
-- **Model**: WhisperKit CoreML models
-- **Ưu điểm**: 
-  - Nhiều models lựa chọn (tiny, base, small, medium, large)
-  - Hỗ trợ đa ngôn ngữ
-- **Nhược điểm**: 
-  - Chậm hơn FluidAudio
-  - Cần download models lớn
-  - Latency cao hơn
+Engine được chọn qua `EngineType` trong [src/config.rs](src/config.rs); mặc định
+là `EngineType::FluidAudio`.
 
-## Cách Chuyển Đổi Engines
+## Kiến trúc
 
-### Trong Code (Rust):
+Pipeline không bao giờ gọi trực tiếp một engine cụ thể. Nó nói chuyện qua 2 trait
+trong [src/bridges/mod.rs](src/bridges/mod.rs):
 
-```rust
-use noter_lib::{AudioConfig, EngineType};
-
-// Sử dụng FluidAudio (mặc định)
-let config = AudioConfig::default()
-    .with_engine(EngineType::FluidAudio);
-
-// Hoặc sử dụng WhisperKit
-let config = AudioConfig::default()
-    .with_engine(EngineType::WhisperKit)
-    .with_model("medium.en"); // small.en, base.en, etc.
+```
+SpeechRecognizer   // audio -> text  (initialize, transcribe, is_initialized)
+VoiceDetector      // audio -> voice probability  (create_stream, process, destroy_stream)
 ```
 
-### Trong Config File:
-
-Mở [src-tauri/src/config.rs](src-tauri/src/config.rs) và thay đổi default engine:
-
-```rust
-impl Default for EngineType {
-    fn default() -> Self {
-        Self::FluidAudio  // Hoặc Self::WhisperKit
-    }
-}
-```
-
-## Build & Setup
-
-### 1. Build Swift Libraries
-
-```bash
-cd src-tauri
-./build-swift.sh
-```
-
-Script này sẽ build cả WhisperKit và FluidAudio bridges.
-
-### 2. Build Rust App
-
-```bash
-cd src-tauri
-cargo build --release
-```
-
-## So Sánh Performance
-
-| Metric | FluidAudio | WhisperKit (medium.en) |
-|--------|------------|------------------------|
-| RTFx (Real-time Factor) | ~15-20x | ~5-10x |
-| Latency | ~100-200ms | ~500-1000ms |
-| Model Size | ~500MB | ~1.5GB |
-| Accuracy | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
-| VAD Quality | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ |
-
-## Kiến Trúc
+Một `Transcriber { asr, vad }` gói 2 trait này lại. Với FluidAudio cả hai `Arc`
+trỏ về cùng một instance; với model chỉ-ASR thì `vad` có thể trỏ tới một detector
+riêng.
 
 ```
 AudioRecorder
-    ├── Engine (enum)
-    │   ├── WhisperKit(Arc<WhisperKit>)
-    │   └── FluidAudio(Arc<FluidAudio>)
-    │
-    ├── TranscriptionEngine trait
-    │   ├── initialize()
-    │   ├── transcribe()
-    │   └── transcribe_stream()
-    │
-    └── Implemented by both:
-        ├── WhisperKit
-        └── FluidAudio
+  └── Transcriber { asr: Arc<dyn SpeechRecognizer>, vad: Arc<dyn VoiceDetector> }
+         │
+         ▼
+  transcription::pipeline::run
+     ├── VoiceDetector::process   -> voice probability mỗi chunk
+     ├── Segmenter                 -> gom speech thành Partial / Segment / Sentence
+     └── SpeechRecognizer::transcribe (worker tuần tự per stream, throttle Partial)
 ```
 
-## Testing
+`Segmenter` ([src/audio/transcription/segmenter.rs](src/audio/transcription/segmenter.rs))
+là một state machine thuần, không phụ thuộc engine — nên đổi model không ảnh hưởng
+logic cắt câu.
 
-Để test FluidAudio riêng:
+## Thêm một engine mới
+
+Đúng 3 bước, một chỗ duy nhất để "đấu dây":
+
+1. Tạo struct mới (vd. `WhisperKit`) và `impl SpeechRecognizer` (+ `impl
+   VoiceDetector` nếu engine tự có VAD; nếu không, dùng lại VAD của FluidAudio).
+2. Thêm một arm vào `enum EngineType` trong [src/config.rs](src/config.rs).
+3. Thêm một `match` case trong `create_transcriber()` ở
+   [src/bridges/mod.rs](src/bridges/mod.rs).
+
+Pipeline, recorder, commands và frontend **không cần đổi gì**.
+
+## Build
+
+```bash
+cd src-tauri
+./build-swift.sh        # build libFluidAudioBridge.dylib
+cargo build             # build Rust
+```
+
+> Nếu `build-swift.sh` báo lỗi `cannot use bare repository ... safe.bareRepository
+> is 'explicit'`, đó là xung đột giữa git config global và cache của SwiftPM. Chạy
+> kèm env (không đổi global config):
+>
+> ```bash
+> GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.bareRepository \
+>   GIT_CONFIG_VALUE_0=all ./build-swift.sh
+> ```
+
+## Troubleshooting
+
+- **FluidAudio không khởi tạo**: cần macOS >= 14.0, đã chạy `./build-swift.sh`,
+  và xem log trong console.
+- **Init chậm lần đầu**: model được tải về và cache; lần sau nhanh hơn.
+- **Engine fail**: app vẫn record audio (ghi WAV) nhưng không có transcript.
+  Kiểm tra quyền micro/loa.
+
+## Test riêng FluidAudio
 
 ```bash
 cd model-test
 swift run StreamingTranscribeTest ~/path/to/audio.wav
 ```
-
-## Troubleshooting
-
-### FluidAudio không khởi tạo được
-- Kiểm tra macOS version >= 14.0
-- Đảm bảo đã chạy `./build-swift.sh`
-- Kiểm tra logs trong console
-
-### WhisperKit download models chậm
-- Models sẽ được download lần đầu tiên
-- Có thể cache tại `~/Library/Caches/`
-- Dùng model nhỏ hơn như `base.en` hoặc `small.en`
-
-### Cả 2 engines đều fail
-- App vẫn sẽ record audio mà không transcribe
-- Check permissions cho microphone/speaker
-- Xem logs trong terminal
-
-## Recommendations
-
-- **Production**: Dùng FluidAudio (default) cho performance tốt nhất
-- **Development/Testing**: Có thể dùng WhisperKit small.en cho nhanh
-- **Multi-language**: Phải dùng WhisperKit với model large hoặc medium
-
-## Notes
-
-- FluidAudio và WhisperKit có cùng interface, nên việc chuyển đổi rất dễ dàng
-- Cả 2 đều support VAD và streaming transcription
-- Config có thể thay đổi runtime bằng cách tạo AudioRecorder mới

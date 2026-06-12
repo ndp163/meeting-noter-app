@@ -33,8 +33,8 @@ struct Ctx {
     has_data: Arc<AtomicBool>,
 }
 
-const CHUNK_SIZE: usize = 256;
-const RING_BUFFER_MULTIPLIER: usize = 8; // Increased from 4 for better buffering
+/// Samples popped from the ring buffer per poll.
+const READ_CHUNK: usize = 4096;
 
 impl MicStream {
     #[inline]
@@ -94,7 +94,9 @@ impl Mic {
     pub fn stream(self) -> Result<MicStream> {
         tracing::debug!("Mic::stream() called - starting stream creation");
         
-        let buffer_size = CHUNK_SIZE * RING_BUFFER_MULTIPLIER;
+        // ~1 second of audio so the realtime callback won't drop samples if the
+        // async consumer briefly stalls (transcription/FFI contention).
+        let buffer_size = self.config.sample_rate as usize;
         let rb = HeapRb::<f32>::new(buffer_size);
         let (producer, consumer) = rb.split();
 
@@ -152,7 +154,7 @@ impl Mic {
             _stream: stream,
             waker_state,
             sample_rate,
-            read_buffer: vec![0.0f32; CHUNK_SIZE],
+            read_buffer: vec![0.0f32; READ_CHUNK],
             has_data,
         })
     }

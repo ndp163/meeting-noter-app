@@ -66,8 +66,8 @@ struct AudioContext {
     current_sample_rate: Arc<AtomicU32>,
     has_data: Arc<AtomicBool>,
 }
-const CHUNK_SIZE: usize = 256;
-const RING_BUFFER_MULTIPLIER: usize = 8; // Tăng buffer để giảm drop
+/// Samples popped from the ring buffer per poll.
+const READ_CHUNK: usize = 4096;
 impl Speaker {
     pub fn new() -> Result<Self> {
         let tap_desc = ca::TapDesc::with_mono_global_tap_excluding_processes(&ns::Array::new());
@@ -110,7 +110,9 @@ impl Speaker {
         let format = av::AudioFormat::with_asbd(&asbd)
             .ok_or(anyhow::anyhow!("Failed to create audio format"))?;
 
-        let buffer_size = CHUNK_SIZE * RING_BUFFER_MULTIPLIER;
+        // ~1 second of audio so the realtime tap callback won't drop samples if
+        // the async consumer briefly stalls (transcription/FFI contention).
+        let buffer_size = asbd.sample_rate as usize;
         let rb = HeapRb::<f32>::new(buffer_size);
         let (producer, consumer) = rb.split();
         let waker_state = Arc::new(Mutex::new(WakerState {
@@ -134,7 +136,7 @@ impl Speaker {
             _tap: self.tap,
             waker_state,
             current_sample_rate,
-            read_buffer: vec![0.0f32; CHUNK_SIZE],
+            read_buffer: vec![0.0f32; READ_CHUNK],
             has_data,
         })
     }

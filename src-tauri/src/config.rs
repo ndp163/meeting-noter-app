@@ -1,70 +1,46 @@
-// Configuration for audio recording and transcription
-//
-// Provides AudioConfig with builder pattern for configuring:
-// - Model selection
-// - Transcription chunk size
-// - Initialization timeout
-// - Channel buffer sizes
+//! Configuration for audio recording and transcription.
 
-/// Configuration for the audio recording system
+/// Which transcription engine to use.
+///
+/// Add an arm here and a case in [`crate::bridges::create_transcriber`] to
+/// support a new model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EngineType {
+    #[default]
+    FluidAudio,
+}
+
+/// Configuration for the audio recording system.
 #[derive(Debug, Clone)]
-///
-/// # Example
-///
-/// ```rust
-/// use noter_lib::AudioConfig;
-///
-/// let config = AudioConfig::default()
-///     .with_model("small.en")
-///     .with_chunk_size(160000)
-///     .with_timeout(60);
-/// ```
 pub struct AudioConfig {
-    /// Model to use for transcription (path or name)
-    pub model: String,
-    
-    /// Maximum time to wait for engine initialization (seconds)
+    /// Transcription engine to use.
+    pub engine: EngineType,
+
+    /// Maximum time to wait for engine initialization (seconds).
     pub init_timeout_secs: u64,
-    
-    /// Buffer size for audio processing
-    pub buffer_size: usize,
-    
-    /// Transcription chunk size (~5 seconds of audio at 16kHz)
-    pub transcription_chunk_size: usize,
-    
-    /// Channel buffer size for bounded channels
+
+    /// Capture chunk size in samples handed to each audio stream.
+    pub chunk_size: usize,
+
+    /// Capacity of the bounded mic/speaker channels.
     pub channel_buffer_size: usize,
 }
 
 impl Default for AudioConfig {
     fn default() -> Self {
         Self {
-            model: "medium.en".to_string(),
+            engine: EngineType::default(),
             init_timeout_secs: 120,
-            buffer_size: 1024,
-            transcription_chunk_size: 8000, // 0.5s at 16kHz - matches RealTimeMicTest
-            channel_buffer_size: 30, // Large buffer for VAD-batch mode
+            chunk_size: 8000, // 0.5s at 16kHz
+            channel_buffer_size: 30,
         }
     }
 }
 
 impl AudioConfig {
-    /// Create a new config with custom model
-    pub fn with_model(mut self, model: impl Into<String>) -> Self {
-        self.model = model.into();
-        self
-    }
-    
-    /// Set transcription chunk size
-    pub fn with_chunk_size(mut self, size: usize) -> Self {
-        self.transcription_chunk_size = size;
-        self
-    }
-    
-    /// Set initialization timeout
-    pub fn with_timeout(mut self, secs: u64) -> Self {
-        self.init_timeout_secs = secs;
+    /// Select the transcription engine.
+    pub fn with_engine(mut self, engine: EngineType) -> Self {
+        self.engine = engine;
         self
     }
 }
-
