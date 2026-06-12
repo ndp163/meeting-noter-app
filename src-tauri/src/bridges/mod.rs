@@ -1,44 +1,63 @@
-//! FFI bridges to external libraries
+//! FFI bridges to external transcription libraries.
 //!
-//! Provides transcription engine: FluidAudio
+//! The pipeline talks to two traits, never a concrete engine:
+//! - [`SpeechRecognizer`] turns audio into text (ASR).
+//! - [`VoiceDetector`] reports speech probability per chunk (VAD).
+//!
+//! To add a new model: implement these two traits and add an arm to
+//! [`crate::config::EngineType`] + [`create_transcriber`].
 
 pub mod fluidaudio;
 
 pub use fluidaudio::FluidAudio;
 
+use crate::config::EngineType;
 use async_trait::async_trait;
+use std::sync::Arc;
 
-/// Common trait for all transcription engines
+/// Turns audio samples into text.
 #[async_trait]
-pub trait TranscriptionEngine: Send + Sync {
-    /// Initialize the transcription engine with optional model path
-    async fn initialize(&self, model_path: Option<&str>) -> Result<(), String>;
-    
-    /// Transcribe audio data (batch mode)
-    async fn transcribe(&self, audio_data: &[f32]) -> Result<String, String>;
-    
-    /// Transcribe audio data (streaming mode)
-    async fn transcribe_stream(&self, audio_data: &[f32]) -> Result<String, String>;
-    
-    /// Check if engine is initialized
+pub trait SpeechRecognizer: Send + Sync {
+    /// Load models. Must be called once before [`transcribe`](Self::transcribe).
+    async fn initialize(&self) -> Result<(), String>;
+
+    /// Transcribe a chunk of 16kHz mono f32 samples.
+    async fn transcribe(&self, audio: &[f32]) -> Result<String, String>;
+
     fn is_initialized(&self) -> bool;
 }
 
-#[async_trait]
-impl TranscriptionEngine for FluidAudio {
-    async fn initialize(&self, model_path: Option<&str>) -> Result<(), String> {
-        FluidAudio::initialize(self, model_path).await
-    }
-    
-    async fn transcribe(&self, audio_data: &[f32]) -> Result<String, String> {
-        FluidAudio::transcribe(self, audio_data).await
-    }
-    
-    async fn transcribe_stream(&self, audio_data: &[f32]) -> Result<String, String> {
-        FluidAudio::transcribe_stream(self, audio_data).await
-    }
-    
-    fn is_initialized(&self) -> bool {
-        FluidAudio::is_initialized(self)
+/// Detects speech activity in a continuous audio stream.
+///
+/// State is keyed by `stream_id` so mic and speaker can run independently.
+pub trait VoiceDetector: Send + Sync {
+    fn create_stream(&self, stream_id: &str) -> Result<(), String>;
+
+    /// Returns voice probability `[0.0, 1.0]` for this chunk.
+    fn process(&self, stream_id: &str, audio: &[f32]) -> Result<f32, String>;
+
+    fn destroy_stream(&self, stream_id: &str);
+}
+
+/// A speech recognizer paired with its voice detector.
+///
+/// For engines that bundle both (like FluidAudio) the two `Arc`s point at the
+/// same instance; for ASR-only models they can be wired to a separate detector.
+#[derive(Clone)]
+pub struct Transcriber {
+    pub asr: Arc<dyn SpeechRecognizer>,
+    pub vad: Arc<dyn VoiceDetector>,
+}
+
+/// The single place that maps a model choice to a concrete engine.
+pub fn create_transcriber(engine: EngineType) -> Transcriber {
+    match engine {
+        EngineType::FluidAudio => {
+            let fluid = Arc::new(FluidAudio::new());
+            Transcriber {
+                asr: fluid.clone(),
+                vad: fluid,
+            }
+        }
     }
 }

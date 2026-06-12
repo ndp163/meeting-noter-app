@@ -29,7 +29,7 @@ impl Default for RecorderState {
     fn default() -> Self {
         Self {
             inner: Mutex::new(None),
-            recorder: Arc::new(Mutex::new(AudioRecorder::with_default())),
+            recorder: Arc::new(Mutex::new(AudioRecorder::default())),
             next_id: AtomicU64::new(0),
         }
     }
@@ -70,22 +70,23 @@ pub struct TranscriptionEventPayload {
 
 impl From<&TranscriptionEvent> for TranscriptionEventPayload {
     fn from(event: &TranscriptionEvent) -> Self {
+        let (is_result_final, is_sentence_final) = event.result.finality.as_flags();
         Self {
             source: event.source.as_str().to_string(),
             text: event.result.text.clone(),
-            raw_text: event.result.raw_text.clone(),
-            confidence: event.result.confidence,
+            raw_text: event.result.text.clone(),
+            confidence: 1.0,
             duration_sec: event.result.duration_sec,
-            processing_time_ms: event.result.processing_time_ms,
-            audio_level_db: event.result.audio_level_db,
+            processing_time_ms: 0,
+            audio_level_db: 0.0,
             stats: EventStatsPayload {
-                received: event.result.chunks_stats.received,
-                with_speech: event.result.chunks_stats.with_speech,
-                transcribed: event.result.chunks_stats.transcribed,
+                received: 0,
+                with_speech: 0,
+                transcribed: 0,
             },
             received_at_ms: current_timestamp_ms(),
-            is_result_final: event.result.is_result_final,
-            is_sentence_final: event.result.is_sentence_final,
+            is_result_final,
+            is_sentence_final,
         }
     }
 }
@@ -108,7 +109,7 @@ pub async fn start_transcription(
     // Get cancel token from persistent recorder
     let cancel_token = {
         let recorder_guard = state.recorder.lock().await;
-        recorder_guard.get_cancel_token()
+        recorder_guard.cancel_token()
     };
 
     let recorder_handle = spawn_recorder_task(

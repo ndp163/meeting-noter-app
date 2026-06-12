@@ -1,3 +1,5 @@
+use super::{SpeechRecognizer, VoiceDetector};
+use async_trait::async_trait;
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -57,8 +59,10 @@ impl<T> Drop for CallbackContext<T> {
     }
 }
 
-// Global mutex to serialize all FFI calls to Swift
-// Swift bridge has thread-safety issues when called concurrently from multiple Rust threads
+// Serializes the *stateful* VAD streaming calls (create/process/destroy), which
+// mutate per-stream state in the Swift bridge and are not safe to interleave
+// across the mic and speaker threads. `transcribe` is a stateless per-call
+// request and may run concurrently (one in-flight call per stream's worker).
 static FFI_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn get_ffi_lock() -> &'static Mutex<()> {
@@ -73,12 +77,6 @@ extern "C" {
         context: *mut c_void,
     );
     fn fluid_audio_transcribe(
-        audio_data: *const u8,
-        data_len: usize,
-        callback: FluidAudioCallback,
-        context: *mut c_void,
-    );
-    fn fluid_audio_transcribe_stream(
         audio_data: *const u8,
         data_len: usize,
         callback: FluidAudioCallback,
@@ -115,7 +113,11 @@ impl FluidAudio {
         }
     }
 
-    pub async fn initialize(&self, model_path: Option<&str>) -> Result<(), String> {
+}
+
+#[async_trait]
+impl SpeechRecognizer for FluidAudio {
+    async fn initialize(&self) -> Result<(), String> {
         let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
 
         let ctx = CallbackContext::new(tx);
@@ -170,17 +172,9 @@ impl FluidAudio {
             // ctx will be dropped here, cleaning up safely
         }
 
-        let model_c_str = model_path
-            .map(|p| CString::new(p).map_err(|e| format!("Invalid model path: {}", e)))
-            .transpose()?;
-
-        let model_ptr = model_c_str
-            .as_ref()
-            .map(|s| s.as_ptr())
-            .unwrap_or(std::ptr::null());
-
+        // FluidAudio bundles its own model; no path is passed.
         unsafe {
-            fluid_audio_init(model_ptr, init_callback, context);
+            fluid_audio_init(std::ptr::null(), init_callback, context);
         }
 
         let result = rx
@@ -194,15 +188,7 @@ impl FluidAudio {
         result
     }
 
-    pub async fn transcribe(&self, audio_data: &[f32]) -> Result<String, String> {
-        self._transcribe(audio_data, false).await
-    }
-
-    pub async fn transcribe_stream(&self, audio_data: &[f32]) -> Result<String, String> {
-        self._transcribe(audio_data, true).await
-    }
-
-    async fn _transcribe(&self, audio_data: &[f32], is_stream: bool) -> Result<String, String> {
+    async fn transcribe(&self, audio: &[f32]) -> Result<String, String> {
         if !self.initialized.load(Ordering::Acquire) {
             return Err("FluidAudio not initialized".to_string());
         }
@@ -258,8 +244,8 @@ impl FluidAudio {
             }
         }
 
-        // Convert f32 to i16 PCM format and convert to bytes
-        let audio_bytes: Vec<u8> = audio_data
+        // Convert f32 samples to little-endian i16 PCM bytes.
+        let pcm_bytes: Vec<u8> = audio
             .iter()
             .flat_map(|&sample| {
                 let s = (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
@@ -267,58 +253,50 @@ impl FluidAudio {
             })
             .collect();
 
-        // Pin audio_bytes to ensure it lives until FFI completes
-        let audio_bytes = Box::pin(audio_bytes);
+        // Pin to ensure the buffer lives until the FFI call completes.
+        let pcm_bytes = Box::pin(pcm_bytes);
 
         unsafe {
-            if is_stream {
-                fluid_audio_transcribe_stream(
-                    audio_bytes.as_ptr(),
-                    audio_bytes.len(),
-                    transcribe_callback,
-                    context,
-                );
-            } else {
-                fluid_audio_transcribe(
-                    audio_bytes.as_ptr(),
-                    audio_bytes.len(),
-                    transcribe_callback,
-                    context,
-                );
-            }
+            fluid_audio_transcribe(
+                pcm_bytes.as_ptr(),
+                pcm_bytes.len(),
+                transcribe_callback,
+                context,
+            );
         }
 
         rx.await
             .map_err(|_| "Transcription callback not received".to_string())?
     }
 
-    pub fn is_initialized(&self) -> bool {
+    fn is_initialized(&self) -> bool {
         self.initialized.load(Ordering::Acquire)
     }
+}
 
-    /// Process audio chunk with VAD and return voice probability
-    pub fn vad_process(&self, stream_id: &str, audio_data: &[f32]) -> Result<f32, String> {
+impl VoiceDetector for FluidAudio {
+    fn process(&self, stream_id: &str, audio: &[f32]) -> Result<f32, String> {
         if !self.is_initialized() {
             return Err("FluidAudio not initialized".to_string());
         }
 
-        if audio_data.is_empty() {
+        if audio.is_empty() {
             return Ok(0.0); // No data, no voice
         }
 
         let stream_id_c =
             CString::new(stream_id).map_err(|e| format!("Invalid stream ID: {}", e))?;
 
-        // Convert f32 to bytes and pin
-        let byte_data: Vec<u8> = audio_data.iter().flat_map(|&f| f.to_le_bytes()).collect();
+        // Convert f32 samples to bytes and pin until the FFI call returns.
+        let f32_bytes: Vec<u8> = audio.iter().flat_map(|&f| f.to_le_bytes()).collect();
 
-        let byte_data = Box::pin(byte_data);
+        let f32_bytes = Box::pin(f32_bytes);
         let mut probability: f32 = 0.0;
 
         // Safety: ensure pointers are valid before FFI call
         let stream_ptr = stream_id_c.as_ptr();
-        let data_ptr = byte_data.as_ptr();
-        let data_len = byte_data.len();
+        let data_ptr = f32_bytes.as_ptr();
+        let data_len = f32_bytes.len();
         let prob_ptr = &mut probability as *mut f32;
 
         if stream_ptr.is_null() || data_ptr.is_null() {
@@ -339,8 +317,7 @@ impl FluidAudio {
         }
     }
 
-    /// Create VAD state for a stream
-    pub fn vad_create_state(&self, stream_id: &str) -> Result<(), String> {
+    fn create_stream(&self, stream_id: &str) -> Result<(), String> {
         let stream_id_c =
             CString::new(stream_id).map_err(|e| format!("Invalid stream ID: {}", e))?;
 
@@ -358,8 +335,7 @@ impl FluidAudio {
         }
     }
 
-    /// Destroy VAD state for a stream
-    pub fn vad_destroy_state(&self, stream_id: &str) {
+    fn destroy_stream(&self, stream_id: &str) {
         if let Ok(stream_id_c) = CString::new(stream_id) {
             // Lock to serialize FFI calls
             if let Ok(_ffi_guard) = get_ffi_lock().lock() {

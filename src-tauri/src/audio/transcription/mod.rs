@@ -1,5 +1,6 @@
-mod task;
-mod task_vad_batch;
+mod pipeline;
+mod segmenter;
+mod types;
 
-pub use task::{ChunksStats, TranscriptionResult};
-pub use task_vad_batch::vad_transcription_task;
+pub use pipeline::run;
+pub use types::TranscriptionResult;
