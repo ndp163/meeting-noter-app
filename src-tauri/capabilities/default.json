@@ -1,10 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
-  "windows": ["main"],
+  "description": "Capability for the main window and the always-on-top meeting alert overlay",
+  "windows": ["main", "alert"],
   "permissions": [
     "core:default",
-    "opener:default"
+    "opener:default",
+    "notification:default"
   ]
 }
