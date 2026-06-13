@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { Sidebar } from "@/features/home/sidebar";
 import { MainContent } from "@/features/home/main-content";
 import {
@@ -336,8 +337,26 @@ export const HomePage = () => {
     }
   };
 
+  // The always-on-top overlay window starts recording by emitting this event
+  // after bringing this window to the front.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+
+    listen("start-recording-from-alert", () => {
+      if (!isCapturing && !isCaptureBusy) {
+        void handleCaptureToggle();
+      }
+    }).then((release) => {
+      unlisten = release;
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, [isCapturing, isCaptureBusy]);
+
   return (
-    <div className="flex h-screen bg-white">
+    <div className="relative flex h-screen bg-white">
       {/* Sidebar */}
       <Sidebar
         meetings={meetings}

@@ -1,11 +1,13 @@
+mod detection;
 mod transcription;
 mod meetings;
 
+pub use detection::{meeting_detection_status, start_recording_from_alert, dismiss_alert};
+
 pub use transcription::{
-    start_transcription, 
-    stop_transcription, 
+    start_transcription,
+    stop_transcription,
     transcription_status,
-    RecorderState
 };
 
 pub use meetings::{
