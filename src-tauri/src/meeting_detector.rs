@@ -22,6 +22,11 @@ use crate::session::RecorderState;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 
+/// Consecutive polls with no meeting app before we treat the meeting as ended
+/// and auto-stop recording. Debounces transient mic releases (mute, device
+/// switch, the app re-creating its stream mid-call). 3 * 2s ≈ 6s.
+const STOP_AFTER_EMPTY_POLLS: u32 = 3;
+
 /// Bundle ID prefixes that indicate a meeting (or browser tab) is using the
 /// mic. Prefixes, not exact IDs: browsers and Electron apps often capture
 /// audio in helper processes (e.g. `com.google.Chrome.helper`).
@@ -66,6 +71,11 @@ pub fn spawn(app: AppHandle) {
     thread::spawn(move || {
         tracing::info!("Meeting detector started");
         let mut was_in_meeting = false;
+        // Armed once a meeting is seen, so auto-stop can only fire after a real
+        // meeting (not when recording with no meeting app present). Counts the
+        // consecutive empty polls that follow.
+        let mut armed = false;
+        let mut empty_polls: u32 = 0;
 
         loop {
             thread::sleep(POLL_INTERVAL);
@@ -89,6 +99,21 @@ pub fn spawn(app: AppHandle) {
                 // Falling edge: mic released, tear down the overlay if it's up.
                 (None, true) => close_alert_window(&app),
                 _ => {}
+            }
+
+            // Debounced auto-stop: once a meeting has been seen, wait for the
+            // app to be gone for STOP_AFTER_EMPTY_POLLS in a row before ending.
+            if in_meeting {
+                armed = true;
+                empty_polls = 0;
+            } else {
+                empty_polls += 1;
+                if armed && empty_polls >= STOP_AFTER_EMPTY_POLLS {
+                    if is_recording(&app) {
+                        request_stop_recording(&app);
+                    }
+                    armed = false;
+                }
             }
             was_in_meeting = in_meeting;
         }
@@ -184,6 +209,14 @@ fn show_alert_window(app: &AppHandle, app_name: &str) {
             Err(e) => tracing::warn!(error = %e, "Failed to create alert window"),
         }
     });
+}
+
+/// Tell the main window the meeting ended so it stops the active recording.
+fn request_stop_recording(app: &AppHandle) {
+    tracing::info!("Meeting ended; requesting auto-stop");
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.emit("meeting-ended", ());
+    }
 }
 
 /// Close the overlay window if it's open. Runs on the main thread.

@@ -337,21 +337,26 @@ export const HomePage = () => {
     }
   };
 
-  // The always-on-top overlay window starts recording by emitting this event
-  // after bringing this window to the front.
+  // The detector drives recording start/stop via events: the overlay's Start
+  // button emits `start-recording-from-alert`, and the meeting ending (mic
+  // released, debounced) emits `meeting-ended`.
   useEffect(() => {
-    let unlisten: (() => void) | null = null;
+    const unlisteners: Array<() => void> = [];
 
     listen("start-recording-from-alert", () => {
       if (!isCapturing && !isCaptureBusy) {
         void handleCaptureToggle();
       }
-    }).then((release) => {
-      unlisten = release;
-    });
+    }).then((release) => unlisteners.push(release));
+
+    listen("meeting-ended", () => {
+      if (isCapturing && !isCaptureBusy) {
+        void handleCaptureToggle();
+      }
+    }).then((release) => unlisteners.push(release));
 
     return () => {
-      unlisten?.();
+      unlisteners.forEach((u) => u());
     };
   }, [isCapturing, isCaptureBusy]);
 
