@@ -24,6 +24,19 @@ pub struct TranscriptMessage {
     pub committed_content: Option<String>,
 }
 
+/// One speaker-attributed, transcribed segment from the offline diarization
+/// pass. `speaker_id` is stable (`"you"` or `"remote-N"`); `label` is the
+/// editable display name.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiarizedSegment {
+    pub speaker_id: String,
+    pub label: String,
+    pub start: f32,
+    pub end: f32,
+    pub text: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Meeting {
@@ -38,5 +51,7 @@ pub struct Meeting {
     #[serde(alias = "audio_path")]
     pub audio_path: Option<String>,
     pub transcript: Vec<TranscriptMessage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diarization: Option<Vec<DiarizedSegment>>,
 }
 

@@ -65,6 +65,21 @@ pub fn mixer(
     };
     tracing::debug!(path = %output_path.display(), "Recording started");
 
+    // Per-source tracks for offline diarization: speaker.wav (remote audio only)
+    // and mic.wav (your voice only). These let the diarization pass separate
+    // remote speakers cleanly and treat the mic as a known "You".
+    let parent = output_path.parent().map(|p| p.to_path_buf());
+    let mut speaker_writer = parent
+        .as_ref()
+        .and_then(|dir| create_track_writer(&dir.join("speaker.wav"), spec));
+    let mut mic_writer = if has_mic {
+        parent
+            .as_ref()
+            .and_then(|dir| create_track_writer(&dir.join("mic.wav"), spec))
+    } else {
+        None
+    };
+
     // Pre-allocate buffers with reasonable capacity
     let mut mic_buf = Vec::<f32>::with_capacity(MIXER_BUFFER_CAPACITY);
     let mut sys_buf = Vec::<f32>::with_capacity(MIXER_BUFFER_CAPACITY);
@@ -76,8 +91,14 @@ pub fn mixer(
 
     loop {
         match rx.recv() {
-            Ok(AudioSource::Mic(data)) => mic_buf.extend(data),
-            Ok(AudioSource::System(data)) => sys_buf.extend(data),
+            Ok(AudioSource::Mic(data)) => {
+                write_track(&mut mic_writer, &data, mic_gain);
+                mic_buf.extend(data);
+            }
+            Ok(AudioSource::System(data)) => {
+                write_track(&mut speaker_writer, &data, sys_gain);
+                sys_buf.extend(data);
+            }
             Err(_) => {
                 tracing::debug!("Audio channel closed, flushing mixer...");
                 break;
@@ -108,6 +129,42 @@ pub fn mixer(
         tracing::error!("Failed to finalize WAV file: {}", e);
     } else {
         tracing::info!(path = %output_path.display(), "Mixer completed, WAV file written");
+    }
+
+    if let Some(w) = speaker_writer.take() {
+        if let Err(e) = w.finalize() {
+            tracing::error!("Failed to finalize speaker.wav: {}", e);
+        }
+    }
+    if let Some(w) = mic_writer.take() {
+        if let Err(e) = w.finalize() {
+            tracing::error!("Failed to finalize mic.wav: {}", e);
+        }
+    }
+}
+
+type TrackWriter = hound::WavWriter<std::io::BufWriter<std::fs::File>>;
+
+/// Create a per-source WAV writer, logging and returning `None` on failure so a
+/// missing side track never aborts the main recording.
+fn create_track_writer(path: &std::path::Path, spec: hound::WavSpec) -> Option<TrackWriter> {
+    match hound::WavWriter::create(path, spec) {
+        Ok(w) => Some(w),
+        Err(e) => {
+            tracing::error!(path = %path.display(), "Failed to create track WAV: {}", e);
+            None
+        }
+    }
+}
+
+/// Write gain-applied samples to an optional per-source track writer.
+fn write_track(writer: &mut Option<TrackWriter>, data: &[f32], gain: f32) {
+    if let Some(w) = writer.as_mut() {
+        for &sample in data {
+            if w.write_sample(to_i16(sample * gain)).is_err() {
+                return;
+            }
+        }
     }
 }
 
