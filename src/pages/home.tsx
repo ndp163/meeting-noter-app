@@ -80,6 +80,13 @@ export const HomePage = () => {
     }
   };
 
+  const handleRenameMeeting = async (id: string, title: string) => {
+    const meeting = meetings.find((m) => m.id === id);
+    if (!meeting || title === meeting.title) return;
+    updateMeeting(id, { title });
+    await saveMeeting({ ...meeting, title, updatedAt: Date.now() });
+  };
+
   // On opening the Diarization tab, run it once if there's no cached result.
   useEffect(() => {
     if (
@@ -416,6 +423,7 @@ export const HomePage = () => {
         onMeetingSelect={handleMeetingSelect}
         onToggleCapture={handleCaptureToggle}
         onDeleteMeeting={handleDeleteMeeting}
+        onRenameMeeting={handleRenameMeeting}
         isCapturing={isCapturing}
         isCaptureBusy={isCaptureBusy}
       />

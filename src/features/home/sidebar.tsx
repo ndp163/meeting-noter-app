@@ -1,4 +1,12 @@
-import { Mic, Square, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import { useState } from "react";
+import {
+  Mic,
+  Square,
+  Trash2,
+  Pencil,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Meeting } from "@/store/meetings.slice";
 import { useBoundStore } from "@/store";
@@ -8,6 +16,7 @@ interface SidebarProps {
   onMeetingSelect: (id: string) => void;
   onToggleCapture: () => void;
   onDeleteMeeting: (id: string) => void;
+  onRenameMeeting: (id: string, title: string) => void;
   activeMeetingId?: string;
   isCapturing: boolean;
   isCaptureBusy?: boolean;
@@ -18,6 +27,7 @@ export const Sidebar = ({
   onMeetingSelect,
   onToggleCapture,
   onDeleteMeeting,
+  onRenameMeeting,
   activeMeetingId,
   isCapturing,
   isCaptureBusy,
@@ -97,6 +107,7 @@ export const Sidebar = ({
               isActive={meeting.id === activeMeetingId}
               onClick={() => onMeetingSelect(meeting.id)}
               onDelete={() => onDeleteMeeting(meeting.id)}
+              onRename={(title) => onRenameMeeting(meeting.id, title)}
               isCollapsed={isSidebarCollapsed}
             />
           ))
@@ -111,6 +122,7 @@ interface MeetingCardProps {
   isActive: boolean;
   onClick: () => void;
   onDelete: () => void;
+  onRename: (title: string) => void;
   isCollapsed: boolean;
 }
 
@@ -119,8 +131,28 @@ const MeetingCard = ({
   isActive,
   onClick,
   onDelete,
+  onRename,
   isCollapsed,
 }: MeetingCardProps) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftTitle, setDraftTitle] = useState(meeting.title);
+
+  const startEditing = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDraftTitle(meeting.title);
+    setIsEditing(true);
+  };
+
+  const commitEditing = () => {
+    const trimmed = draftTitle.trim();
+    onRename(trimmed || "Untitled");
+    setIsEditing(false);
+  };
+
+  const cancelEditing = () => {
+    setIsEditing(false);
+  };
+
   const formatDate = (timestamp: number) => {
     const date = new Date(timestamp);
     const hours = date.getHours().toString().padStart(2, "0");
@@ -164,9 +196,36 @@ const MeetingCard = ({
       )}
     >
       <div className="flex items-center justify-between w-full">
-        <p className="text-base text-custom-text-primary font-medium">
-          {meeting.title}
-        </p>
+        {isEditing ? (
+          <input
+            autoFocus
+            value={draftTitle}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => setDraftTitle(e.target.value)}
+            onBlur={commitEditing}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitEditing();
+              else if (e.key === "Escape") cancelEditing();
+            }}
+            className="text-base text-custom-text-primary font-medium bg-transparent border-b border-custom-text-secondary outline-none w-full"
+          />
+        ) : (
+          <div className="flex items-center gap-1.5 min-w-0">
+            <p
+              onDoubleClick={startEditing}
+              className="text-base text-custom-text-primary font-medium truncate"
+            >
+              {meeting.title}
+            </p>
+            <button
+              onClick={startEditing}
+              className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-custom-bg-secondary shrink-0"
+              title="Rename meeting"
+            >
+              <Pencil className="w-3.5 h-3.5 text-custom-text-secondary" />
+            </button>
+          </div>
+        )}
         {meeting.status === "recording" && (
           <span className="flex items-center gap-1 text-xs text-custom-red">
             <span className="h-2 w-2 rounded-full bg-custom-red animate-pulse" />
