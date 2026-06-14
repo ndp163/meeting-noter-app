@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { DiarizedSegment } from "@/store/meetings.slice";
 
@@ -112,13 +113,14 @@ export const DiarizationView = ({
                     }}
                     title="Click to rename"
                     className={cn(
-                      "text-base hover:underline",
+                      "group flex items-center gap-1.5 text-base hover:underline",
                       isYou
                         ? "text-custom-text-highlight"
                         : "text-custom-text-primary"
                     )}
                   >
                     {segment.label}
+                    <Pencil className="w-3.5 h-3.5 text-custom-text-secondary opacity-0 group-hover:opacity-100" />
                   </button>
                 )}
               </div>
