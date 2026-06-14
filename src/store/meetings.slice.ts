@@ -12,6 +12,14 @@ export interface TranscriptMessage {
   committedContent?: string;
 }
 
+export interface DiarizedSegment {
+  speakerId: string;
+  label: string;
+  start: number;
+  end: number;
+  text: string;
+}
+
 export interface Meeting {
   id: string;
   title: string;
@@ -21,6 +29,7 @@ export interface Meeting {
   status: "recording" | "completed";
   audioPath?: string;
   transcript: TranscriptMessage[];
+  diarization?: DiarizedSegment[];
 }
 
 export interface MeetingsSlice {
@@ -44,6 +53,12 @@ export interface MeetingsSlice {
     updates: Partial<TranscriptMessage>
   ) => void;
   setIsLoadingMeetings: (isLoading: boolean) => void;
+  setDiarization: (meetingId: string, segments: DiarizedSegment[]) => void;
+  renameSpeaker: (
+    meetingId: string,
+    speakerId: string,
+    label: string
+  ) => void;
   getCurrentMeeting: () => Meeting | undefined;
   getCapturingMeeting: () => Meeting | undefined;
 }
@@ -119,6 +134,26 @@ export const createMeetingsSlice: StateCreator<
   setIsLoadingMeetings: (isLoading) =>
     set((state) => {
       state.isLoadingMeetings = isLoading;
+    }),
+
+  setDiarization: (meetingId, segments) =>
+    set((state) => {
+      const meeting = state.meetings.find((m) => m.id === meetingId);
+      if (!meeting) return;
+      meeting.diarization = segments;
+      meeting.updatedAt = Date.now();
+    }),
+
+  renameSpeaker: (meetingId, speakerId, label) =>
+    set((state) => {
+      const meeting = state.meetings.find((m) => m.id === meetingId);
+      if (!meeting?.diarization) return;
+      for (const segment of meeting.diarization) {
+        if (segment.speakerId === speakerId) {
+          segment.label = label;
+        }
+      }
+      meeting.updatedAt = Date.now();
     }),
 
   getCurrentMeeting: () => {

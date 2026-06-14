@@ -84,6 +84,13 @@ extern "C" {
     );
     fn fluid_audio_shutdown();
 
+    fn fluid_audio_diarize_file(
+        path: *const c_char,
+        diarize: bool,
+        callback: FluidAudioCallback,
+        context: *mut c_void,
+    );
+
     // VAD functions
     fn fluid_audio_vad_create_state(stream_id: *const c_char) -> bool;
     fn fluid_audio_vad_process(
@@ -113,6 +120,69 @@ impl FluidAudio {
         }
     }
 
+    /// Offline pass: transcribe a whole WAV file and attribute each part to a
+    /// speaker. `diarize` clusters multiple speakers (remote track); when false
+    /// the file is treated as a single known speaker (mic track). Returns the
+    /// segments as a JSON string. Models load lazily inside the Swift bridge.
+    pub async fn diarize_file(&self, path: &str, diarize: bool) -> Result<String, String> {
+        let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
+
+        let ctx = CallbackContext::new(tx);
+        let context = Box::into_raw(Box::new(ctx)) as *mut c_void;
+
+        let c_path = CString::new(path).map_err(|e| format!("Invalid path: {}", e))?;
+
+        unsafe {
+            fluid_audio_diarize_file(c_path.as_ptr(), diarize, string_result_callback, context);
+        }
+
+        rx.await
+            .map_err(|_| "Diarization callback not received".to_string())?
+    }
+}
+
+/// Shared FFI callback that resolves a oneshot channel with a string result.
+unsafe extern "C" fn string_result_callback(
+    text_ptr: *const c_char,
+    error_ptr: *const c_char,
+    context: *mut c_void,
+) {
+    if context.is_null() {
+        tracing::error!("String result callback: context is null");
+        return;
+    }
+
+    let mut ctx = Box::from_raw(
+        context as *mut CallbackContext<tokio::sync::oneshot::Sender<Result<String, String>>>,
+    );
+
+    if ctx.consumed.swap(true, Ordering::SeqCst) {
+        tracing::warn!("String result callback called multiple times, ignoring");
+        return;
+    }
+
+    let tx = match ctx.inner.take() {
+        Some(t) => t,
+        None => {
+            tracing::error!("String result callback: sender already taken");
+            return;
+        }
+    };
+
+    let result = if !error_ptr.is_null() {
+        let error_str = CStr::from_ptr(error_ptr).to_string_lossy().to_string();
+        tracing::error!(error = %error_str, "FluidAudio diarization error");
+        Err(error_str)
+    } else if !text_ptr.is_null() {
+        let text = CStr::from_ptr(text_ptr).to_string_lossy().to_string();
+        Ok(text)
+    } else {
+        Err("Invalid callback: both pointers null".to_string())
+    };
+
+    if tx.send(result).is_err() {
+        tracing::warn!("String result callback: receiver dropped");
+    }
 }
 
 #[async_trait]

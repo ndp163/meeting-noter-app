@@ -17,17 +17,19 @@ import {
   getMeetingAudioPath,
   createNewMeeting,
 } from "@/services/meetings";
+import { diarizeMeeting } from "@/services/diarization";
 import { useBoundStore } from "@/store";
 import type { TranscriptMessage } from "@/store/meetings.slice";
+import type { MainTab } from "@/features/home/main-content";
 
 export const HomePage = () => {
-  const [activeTab, setActiveTab] = useState<"transcript" | "summary">(
-    "transcript",
-  );
+  const [activeTab, setActiveTab] = useState<MainTab>("transcript");
   const [isCapturing, setIsCapturing] = useState(false);
   const [isCaptureBusy, setIsCaptureBusy] = useState(false);
   const [audioPath, setAudioPath] = useState<string>();
   const [isAutoScroll, setIsAutoScroll] = useState(true);
+  const [isDiarizing, setIsDiarizing] = useState(false);
+  const [diarizationError, setDiarizationError] = useState<string>();
 
   // Zustand store
   const meetings = useBoundStore.use.meetings();
@@ -40,11 +42,56 @@ export const HomePage = () => {
   const addTranscriptToMeeting = useBoundStore.use.addTranscriptToMeeting();
   const updateTranscriptInMeeting =
     useBoundStore.use.updateTranscriptInMeeting();
+  const setDiarization = useBoundStore.use.setDiarization();
+  const renameSpeaker = useBoundStore.use.renameSpeaker();
   const getCurrentMeeting = useBoundStore.use.getCurrentMeeting();
   const getCapturingMeeting = useBoundStore.use.getCapturingMeeting();
 
   const currentMeeting = getCurrentMeeting();
   const messages = currentMeeting?.transcript || [];
+  const canDiarize =
+    !!currentMeeting && currentMeeting.status === "completed" && !isCapturing;
+
+  const handleRunDiarization = async () => {
+    if (!currentMeetingId || isDiarizing) return;
+    setIsDiarizing(true);
+    setDiarizationError(undefined);
+    try {
+      const segments = await diarizeMeeting(currentMeetingId);
+      setDiarization(currentMeetingId, segments);
+      const meeting = getCurrentMeeting();
+      if (meeting) {
+        await saveMeeting({ ...meeting, diarization: segments });
+      }
+    } catch (error) {
+      console.error("Diarization failed", error);
+      setDiarizationError(String(error));
+    } finally {
+      setIsDiarizing(false);
+    }
+  };
+
+  const handleRenameSpeaker = async (speakerId: string, label: string) => {
+    if (!currentMeetingId) return;
+    renameSpeaker(currentMeetingId, speakerId, label);
+    const meeting = getCurrentMeeting();
+    if (meeting) {
+      await saveMeeting(meeting);
+    }
+  };
+
+  // On opening the Diarization tab, run it once if there's no cached result.
+  useEffect(() => {
+    if (
+      activeTab === "diarization" &&
+      canDiarize &&
+      !isDiarizing &&
+      !currentMeeting?.diarization
+    ) {
+      void handleRunDiarization();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, currentMeetingId]);
 
   // Ref for auto-scrolling to bottom
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -383,6 +430,12 @@ export const HomePage = () => {
         audioPath={audioPath}
         contentAreaRef={contentAreaRef}
         messagesEndRef={messagesEndRef}
+        diarization={currentMeeting?.diarization}
+        isDiarizing={isDiarizing}
+        diarizationError={diarizationError}
+        canDiarize={canDiarize}
+        onRunDiarization={handleRunDiarization}
+        onRenameSpeaker={handleRenameSpeaker}
       />
     </div>
   );

@@ -2,18 +2,27 @@ import { Ref } from "react";
 import { Tab } from "@/features/home/tab";
 import { Message } from "@/features/home/message";
 import { AudioPlayer } from "@/features/home/audio-player";
+import { DiarizationView } from "@/features/home/diarization-view";
 import { cn } from "@/lib/utils";
-import type { TranscriptMessage } from "@/store/meetings.slice";
+import type { TranscriptMessage, DiarizedSegment } from "@/store/meetings.slice";
+
+export type MainTab = "transcript" | "summary" | "diarization";
 
 interface MainContentProps {
-  activeTab: "transcript" | "summary";
-  setActiveTab: (tab: "transcript" | "summary") => void;
+  activeTab: MainTab;
+  setActiveTab: (tab: MainTab) => void;
   isCapturing: boolean;
   messages: TranscriptMessage[];
   currentMeetingId: string | null;
   audioPath?: string;
   contentAreaRef: Ref<HTMLDivElement>;
   messagesEndRef: Ref<HTMLDivElement>;
+  diarization: DiarizedSegment[] | undefined;
+  isDiarizing: boolean;
+  diarizationError?: string;
+  canDiarize: boolean;
+  onRunDiarization: () => void;
+  onRenameSpeaker: (speakerId: string, label: string) => void;
 }
 
 export const MainContent = ({
@@ -25,6 +34,12 @@ export const MainContent = ({
   audioPath,
   contentAreaRef,
   messagesEndRef,
+  diarization,
+  isDiarizing,
+  diarizationError,
+  canDiarize,
+  onRunDiarization,
+  onRenameSpeaker,
 }: MainContentProps) => {
   return (
     <div className="flex flex-col gap-2.5 flex-1 p-5 overflow-hidden">
@@ -39,6 +54,11 @@ export const MainContent = ({
           label="Summary"
           isActive={activeTab === "summary"}
           onClick={() => setActiveTab("summary")}
+        />
+        <Tab
+          label="Diarization"
+          isActive={activeTab === "diarization"}
+          onClick={() => setActiveTab("diarization")}
         />
         <div className="ml-auto flex items-center gap-2 text-sm text-custom-text-secondary">
           <span
@@ -83,6 +103,15 @@ export const MainContent = ({
                     : "Create a new meeting or select an existing one to get started."}
               </div>
             )
+          ) : activeTab === "diarization" ? (
+            <DiarizationView
+              segments={diarization}
+              isLoading={isDiarizing}
+              error={diarizationError}
+              canRun={canDiarize}
+              onRun={onRunDiarization}
+              onRenameSpeaker={onRenameSpeaker}
+            />
           ) : (
             <div className="text-custom-text-primary">
               <p>Summary content will be displayed here.</p>

@@ -14,6 +14,7 @@ use commands::{
     start_transcription, stop_transcription, transcription_status, meeting_detection_status,
     start_recording_from_alert, dismiss_alert,
     get_meetings, get_meeting_detail, save_meeting, delete_meeting, get_meeting_audio_path,
+    diarize_meeting,
 };
 use session::RecorderState;
 
@@ -49,6 +50,7 @@ pub async fn run() -> Result<()> {
             save_meeting,
             delete_meeting,
             get_meeting_audio_path,
+            diarize_meeting,
         ])
         .run(tauri::generate_context!())
         .map_err(|e| anyhow::anyhow!(e))

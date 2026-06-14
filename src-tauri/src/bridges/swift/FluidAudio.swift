@@ -12,10 +12,20 @@ func bytesToFloat32(_ data: Data) -> [Float] {
     return array
 }
 
+// One speaker-attributed, transcribed segment returned by the offline
+// diarization pass. `speaker` is a 0-based cluster index within a single file.
+struct DiarizedSegment: Codable {
+    let speaker: Int
+    let start: Float
+    let end: Float
+    let text: String
+}
+
 @objc public class FluidAudioBridge: NSObject {
     var vadManager: VadManager?
     private var asrManager: AsrManager?
     private var models: AsrModels?
+    private var diarizer: DiarizerManager?
     private let modelVersion: AsrModelVersion = .v2 // English-only, faster
     
     // VAD state tracking - use a thread-safe queue for access
@@ -97,6 +107,143 @@ func bytesToFloat32(_ data: Data) -> [Float] {
         }
     }
 
+    // Lazily load the ASR models. Offline diarization can run when no live
+    // recording session has initialized them yet.
+    private func ensureAsrLoaded() async throws {
+        if asrManager != nil { return }
+        let models = try await AsrModels.downloadAndLoad(version: self.modelVersion)
+        let manager = AsrManager(config: .default)
+        try await manager.initialize(models: models)
+        self.models = models
+        self.asrManager = manager
+    }
+
+    // Lazily download/load the diarization CoreML models on first use.
+    private func ensureDiarizerLoaded() async throws -> DiarizerManager {
+        if let diarizer = diarizer { return diarizer }
+        let models = try await DiarizerModels.downloadIfNeeded()
+        let manager = DiarizerManager()
+        manager.initialize(models: models)
+        self.diarizer = manager
+        return manager
+    }
+
+    /// Transcribe a whole audio file and attribute each part to a speaker.
+    ///
+    /// `diarize == true`: cluster speakers and bucket transcribed tokens into
+    /// the speaker segment their timing falls in (used for the remote track).
+    /// `diarize == false`: single speaker, split into segments on silence gaps
+    /// (used for the known "You" mic track). Returns segments as JSON.
+    func diarizeFile(path: String, diarize: Bool) async throws -> String {
+        try await ensureAsrLoaded()
+        guard let asrManager = asrManager else {
+            throw NSError(domain: "FluidAudio", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "ASR not initialized"])
+        }
+
+        let samples = try AudioConverter().resampleAudioFile(path: path)
+        let asr = try await asrManager.transcribe(samples)
+        let timings = asr.tokenTimings ?? []
+
+        let segments: [DiarizedSegment]
+        if diarize {
+            let diarizer = try await ensureDiarizerLoaded()
+            let result = try diarizer.performCompleteDiarization(samples, sampleRate: 16000)
+            segments = bucketIntoSpeakerSegments(result.segments, timings: timings)
+        } else {
+            segments = splitBySilence(timings)
+        }
+
+        let data = try JSONEncoder().encode(segments)
+        return String(data: data, encoding: .utf8) ?? "[]"
+    }
+
+    // Assign each ASR token to the diarization segment containing its midpoint
+    // (or the nearest segment when it falls in a gap), then join token text per
+    // segment in time order. No token is dropped.
+    private func bucketIntoSpeakerSegments(
+        _ diarSegments: [TimedSpeakerSegment],
+        timings: [TokenTiming]
+    ) -> [DiarizedSegment] {
+        let sorted = diarSegments.sorted { $0.startTimeSeconds < $1.startTimeSeconds }
+        if sorted.isEmpty { return [] }
+
+        // Stable 0-based index per speakerId, in first-appearance order.
+        var speakerIndex: [String: Int] = [:]
+        for seg in sorted where speakerIndex[seg.speakerId] == nil {
+            speakerIndex[seg.speakerId] = speakerIndex.count
+        }
+
+        var texts = [String](repeating: "", count: sorted.count)
+        for timing in timings {
+            let mid = Float((timing.startTime + timing.endTime) / 2.0)
+            var bestIdx = 0
+            var bestDistance = Float.greatestFiniteMagnitude
+            for (i, seg) in sorted.enumerated() {
+                if mid >= seg.startTimeSeconds && mid <= seg.endTimeSeconds {
+                    bestIdx = i
+                    bestDistance = 0
+                    break
+                }
+                let distance = mid < seg.startTimeSeconds
+                    ? seg.startTimeSeconds - mid
+                    : mid - seg.endTimeSeconds
+                if distance < bestDistance {
+                    bestDistance = distance
+                    bestIdx = i
+                }
+            }
+            texts[bestIdx] += timing.token
+        }
+
+        var out: [DiarizedSegment] = []
+        for (i, seg) in sorted.enumerated() {
+            let text = cleanText(texts[i])
+            if text.isEmpty { continue }
+            out.append(DiarizedSegment(
+                speaker: speakerIndex[seg.speakerId] ?? 0,
+                start: seg.startTimeSeconds,
+                end: seg.endTimeSeconds,
+                text: text
+            ))
+        }
+        return out
+    }
+
+    // Group tokens into single-speaker segments, breaking on silence gaps.
+    private func splitBySilence(_ timings: [TokenTiming], gap: TimeInterval = 0.8) -> [DiarizedSegment] {
+        var out: [DiarizedSegment] = []
+        var current = ""
+        var start: TimeInterval = 0
+        var end: TimeInterval = 0
+        var lastEnd: TimeInterval = -1
+
+        for timing in timings {
+            if lastEnd >= 0 && timing.startTime - lastEnd > gap {
+                let text = cleanText(current)
+                if !text.isEmpty {
+                    out.append(DiarizedSegment(speaker: 0, start: Float(start), end: Float(end), text: text))
+                }
+                current = ""
+                start = timing.startTime
+            }
+            if current.isEmpty { start = timing.startTime }
+            current += timing.token
+            end = timing.endTime
+            lastEnd = timing.endTime
+        }
+        let text = cleanText(current)
+        if !text.isEmpty {
+            out.append(DiarizedSegment(speaker: 0, start: Float(start), end: Float(end), text: text))
+        }
+        return out
+    }
+
+    private func cleanText(_ s: String) -> String {
+        s.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: "  ", with: " ")
+    }
+
     // Reinterprets raw bytes as 16-bit PCM and normalizes to Float [-1, 1].
     private func pcm16ToFloat(_ data: Data) -> [Float] {
         let int16Array = data.withUnsafeBytes { buffer in
@@ -111,6 +258,7 @@ func bytesToFloat32(_ data: Data) -> [Float] {
         vadManager = nil
         asrManager = nil
         models = nil
+        diarizer = nil
     }
 }
 
@@ -166,6 +314,31 @@ public func fluid_audio_transcribe(
         } else {
             let errorMsg = error ?? "Transcription failed"
             let errorStr = strdup(errorMsg)
+            callback(nil, errorStr, context)
+            free(errorStr)
+        }
+    }
+}
+
+@_cdecl("fluid_audio_diarize_file")
+public func fluid_audio_diarize_file(
+    path: UnsafePointer<CChar>?,
+    diarize: Bool,
+    callback: FluidAudioCallback?,
+    context: UnsafeMutableRawPointer?
+) {
+    guard let path = path, let callback = callback else { return }
+    let filePath = String(cString: path)
+    let bridge = FluidAudioBridge.shared
+
+    Task {
+        do {
+            let json = try await bridge.diarizeFile(path: filePath, diarize: diarize)
+            let jsonStr = strdup(json)
+            callback(jsonStr, nil, context)
+            free(jsonStr)
+        } catch {
+            let errorStr = strdup(error.localizedDescription)
             callback(nil, errorStr, context)
             free(errorStr)
         }
