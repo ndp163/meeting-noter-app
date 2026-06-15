@@ -4,7 +4,7 @@ import { Message } from "@/features/home/message";
 import { AudioPlayer } from "@/features/home/audio-player";
 import { DiarizationView } from "@/features/home/diarization-view";
 import { cn } from "@/lib/utils";
-import type { TranscriptMessage, DiarizedSegment } from "@/store/meetings.slice";
+import type { TranscriptMessage, DiarizedSegment } from "@/types/meeting";
 
 export type MainTab = "transcript" | "summary" | "diarization";
 

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { DiarizedSegment } from "@/store/meetings.slice";
+import type { DiarizedSegment } from "@/types/meeting";
 
 interface DiarizationViewProps {
   segments: DiarizedSegment[] | undefined;

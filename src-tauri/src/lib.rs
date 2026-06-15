@@ -7,6 +7,7 @@ mod meeting_detector;
 pub mod paths;
 mod recorder;
 mod session;
+mod tray;
 mod types;
 
 use anyhow::Result;
@@ -36,8 +37,10 @@ pub async fn run() -> Result<()> {
         .manage(meeting_detector::DetectorState::default())
         .setup(|app| {
             meeting_detector::spawn(app.handle().clone());
+            tray::setup(app)?;
             Ok(())
         })
+        .on_window_event(tray::on_window_event)
         .invoke_handler(tauri::generate_handler![
             start_transcription,
             stop_transcription,
