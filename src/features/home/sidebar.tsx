@@ -8,7 +8,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Meeting } from "@/store/meetings.slice";
+import type { Meeting } from "@/types/meeting";
 import { useBoundStore } from "@/store";
 
 interface SidebarProps {

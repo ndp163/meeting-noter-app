@@ -10,7 +10,7 @@ import {
   TranscriptionEventPayload,
 } from "@/services/transcription";
 import {
-  getMeetings,
+  loadMeetings,
   getMeetingDetail,
   saveMeeting,
   deleteMeeting as deleteMeetingService,
@@ -19,7 +19,7 @@ import {
 } from "@/services/meetings";
 import { diarizeMeeting } from "@/services/diarization";
 import { useBoundStore } from "@/store";
-import type { TranscriptMessage } from "@/store/meetings.slice";
+import type { TranscriptMessage } from "@/types/meeting";
 import type { MainTab } from "@/features/home/main-content";
 
 export const HomePage = () => {
@@ -110,7 +110,7 @@ export const HomePage = () => {
 
     (async () => {
       try {
-        const loadedMeetings = await getMeetings();
+        const loadedMeetings = await loadMeetings();
         if (mounted) {
           setMeetings(loadedMeetings);
 

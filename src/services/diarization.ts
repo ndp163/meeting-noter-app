@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { DiarizedSegment } from "@/store/meetings.slice";
+import type { DiarizedSegment } from "@/types/meeting";
 
 export const diarizeMeeting = async (
   meetingId: string
