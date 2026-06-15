@@ -27,14 +27,13 @@ export const DiarizationView = ({
   onRun,
   onRenameSpeaker,
 }: DiarizationViewProps) => {
-  const [editing, setEditing] = useState<string | null>(null);
+  const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
 
   if (isLoading) {
     return (
       <div className="text-custom-text-secondary text-sm">
-        Transcribing and identifying speakers… The first run downloads the
-        speaker models, which can take a moment.
+        Transcribing and identifying speakers…
       </div>
     );
   }
@@ -93,7 +92,7 @@ export const DiarizationView = ({
           <div key={`${segment.speakerId}-${index}`} className="flex flex-col gap-2.5">
             <div className="flex gap-2.5 items-center">
               <div className="flex items-center justify-center border-b border-custom-primary pb-0.5">
-                {editing === segment.speakerId ? (
+                {editing === index ? (
                   <input
                     autoFocus
                     value={draft}
@@ -108,7 +107,7 @@ export const DiarizationView = ({
                 ) : (
                   <button
                     onClick={() => {
-                      setEditing(segment.speakerId);
+                      setEditing(index);
                       setDraft(segment.label);
                     }}
                     title="Click to rename"

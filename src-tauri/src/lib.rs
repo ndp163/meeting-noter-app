@@ -16,6 +16,7 @@ use commands::{
     start_recording_from_alert, dismiss_alert,
     get_meetings, get_meeting_detail, save_meeting, delete_meeting, get_meeting_audio_path,
     diarize_meeting,
+    models_ready, prefetch_models,
 };
 use session::RecorderState;
 
@@ -54,6 +55,8 @@ pub async fn run() -> Result<()> {
             delete_meeting,
             get_meeting_audio_path,
             diarize_meeting,
+            models_ready,
+            prefetch_models,
         ])
         .run(tauri::generate_context!())
         .map_err(|e| anyhow::anyhow!(e))
