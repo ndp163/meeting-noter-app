@@ -254,6 +254,19 @@ struct DiarizedSegment: Codable {
         return int16Array.map { Float($0) / Float(Int16.max) }
     }
     
+    // Eagerly download/load the diarizer models so the first real diarization
+    // doesn't pay the download cost. Used by the onboarding prefetch.
+    @objc public func prefetchDiarizer(completion: @escaping (Bool, String?) -> Void) {
+        Task {
+            do {
+                _ = try await ensureDiarizerLoaded()
+                completion(true, nil)
+            } catch {
+                completion(false, error.localizedDescription)
+            }
+        }
+    }
+
     @objc public func shutdown() {
         vadManager = nil
         asrManager = nil
@@ -343,6 +356,47 @@ public func fluid_audio_diarize_file(
             free(errorStr)
         }
     }
+}
+
+@_cdecl("fluid_audio_prefetch_diarizer")
+public func fluid_audio_prefetch_diarizer(
+    callback: FluidAudioCallback?,
+    context: UnsafeMutableRawPointer?
+) {
+    let bridge = FluidAudioBridge.shared
+    bridge.prefetchDiarizer { success, error in
+        guard let callback = callback else { return }
+        if success {
+            let successStr = strdup("success")
+            callback(successStr, nil, context)
+            free(successStr)
+        } else {
+            let errorStr = strdup(error ?? "Diarizer prefetch failed")
+            callback(nil, errorStr, context)
+            free(errorStr)
+        }
+    }
+}
+
+// Returns true only when every required ASR and diarizer model file is already
+// cached on disk, so onboarding can skip the download step entirely. Uses the
+// same .v2 ASR version the bridge initializes with.
+@_cdecl("fluid_audio_models_present")
+public func fluid_audio_models_present() -> Bool {
+    let fm = FileManager.default
+    let asrDir = AsrModels.defaultCacheDirectory(for: .v2)
+    for name in AsrModels.requiredModelNames {
+        if !fm.fileExists(atPath: asrDir.appendingPathComponent(name).path) {
+            return false
+        }
+    }
+    let diarDir = DiarizerModels.defaultModelsDirectory()
+    for name in DiarizerModels.requiredModelNames {
+        if !fm.fileExists(atPath: diarDir.appendingPathComponent(name).path) {
+            return false
+        }
+    }
+    return true
 }
 
 @_cdecl("fluid_audio_shutdown")

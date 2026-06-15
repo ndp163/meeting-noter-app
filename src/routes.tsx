@@ -1,9 +1,9 @@
 import { createBrowserRouter } from "react-router";
-import { HomePage } from "./pages/home";
+import { SetupGate } from "./features/onboarding/setup-gate";
 
 export const router = createBrowserRouter([
   {
     index: true,
-    element: <HomePage />,
+    element: <SetupGate />,
   },
 ]);

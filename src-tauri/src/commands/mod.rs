@@ -1,11 +1,14 @@
 mod detection;
 mod diarization;
+mod setup;
 mod transcription;
 mod meetings;
 
 pub use detection::{meeting_detection_status, start_recording_from_alert, dismiss_alert};
 
 pub use diarization::diarize_meeting;
+
+pub use setup::{models_ready, prefetch_models};
 
 pub use transcription::{
     start_transcription,

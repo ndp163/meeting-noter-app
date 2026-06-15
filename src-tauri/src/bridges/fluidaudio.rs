@@ -91,6 +91,9 @@ extern "C" {
         context: *mut c_void,
     );
 
+    fn fluid_audio_prefetch_diarizer(callback: FluidAudioCallback, context: *mut c_void);
+    fn fluid_audio_models_present() -> bool;
+
     // VAD functions
     fn fluid_audio_vad_create_state(stream_id: *const c_char) -> bool;
     fn fluid_audio_vad_process(
@@ -138,6 +141,29 @@ impl FluidAudio {
 
         rx.await
             .map_err(|_| "Diarization callback not received".to_string())?
+    }
+
+    /// Eagerly download/load the diarizer models (used by onboarding) so the
+    /// first real diarization doesn't pay the download cost.
+    pub async fn prefetch_diarizer(&self) -> Result<(), String> {
+        let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
+
+        let ctx = CallbackContext::new(tx);
+        let context = Box::into_raw(Box::new(ctx)) as *mut c_void;
+
+        unsafe {
+            fluid_audio_prefetch_diarizer(string_result_callback, context);
+        }
+
+        rx.await
+            .map_err(|_| "Prefetch callback not received".to_string())??;
+        Ok(())
+    }
+
+    /// True only when every required model is already cached on disk, so
+    /// onboarding can skip the download step.
+    pub fn models_present() -> bool {
+        unsafe { fluid_audio_models_present() }
     }
 }
 
