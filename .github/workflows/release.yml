@@ -1,18 +1,28 @@
 name: release
 
-# Tag-triggered signed release. Push a tag like `v0.1.1` to build the macOS
-# bundle and sign it for the updater. Because the app repo is private (the
-# updater fetches over unauthenticated HTTP), the signed bundle + latest.json
-# are published to the PUBLIC repo `ndp163/meeting-noter-releases`, which the
-# updater endpoint in tauri.conf.json points at.
+# One-click release. Go to Actions → release → Run workflow, pick the bump
+# (patch/minor/major). The job bumps the version in package.json + tauri.conf.json,
+# commits + tags it, builds and signs the macOS bundle, then publishes the signed
+# bundle + latest.json to the PUBLIC repo `ndp163/meeting-noter-releases` (the
+# app repo is private, so the updater fetches the manifest from there).
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump"
+        type: choice
+        required: true
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
 
 jobs:
   release:
     runs-on: macos-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -32,8 +42,23 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
 
-      # Build + sign only — do NOT create a release here (it would land in this
-      # private repo, where the updater can't reach it).
+      # Bump version in both files, commit + tag, push back to this repo.
+      - name: Bump version
+        id: bump
+        run: |
+          set -euo pipefail
+          VERSION=$(npm version "${{ github.event.inputs.bump }}" --no-git-tag-version)
+          VERSION="${VERSION#v}"
+          node -e "const f='src-tauri/tauri.conf.json',j=require('./'+f);j.version='$VERSION';require('fs').writeFileSync(f,JSON.stringify(j,null,2)+'\n')"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: release v$VERSION"
+          git tag "v$VERSION"
+          git push origin HEAD --tags
+
+      # Build + sign only — no release in this private repo.
       - uses: tauri-apps/tauri-action@v0
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -43,12 +68,12 @@ jobs:
           # so a universal build can't link the Intel half. App is Apple Silicon only.
           args: --target aarch64-apple-darwin
 
-      # Build latest.json by hand, pointing the download URLs at the public repo,
-      # then publish the bundle + signature + manifest there.
+      # Build latest.json pointing at the public repo, then publish there.
       - name: Publish to releases repo
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.bump.outputs.tag }}
+          VERSION: ${{ steps.bump.outputs.version }}
           RELEASES_REPO: ndp163/meeting-noter-releases
         run: |
           set -euo pipefail
@@ -56,7 +81,6 @@ jobs:
           TARBALL=$(ls "$BUNDLE_DIR"/*.app.tar.gz)
           SIG=$(ls "$BUNDLE_DIR"/*.app.tar.gz.sig)
           TARBALL_NAME=$(basename "$TARBALL")
-          VERSION="${TAG#v}"
 
           cat > latest.json <<EOF
           {
