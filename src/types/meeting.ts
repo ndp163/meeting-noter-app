@@ -7,6 +7,7 @@ export interface TranscriptMessage {
   isFinal?: boolean;
   sentenceFinal?: boolean;
   committedContent?: string;
+  audioOffset?: number;
 }
 
 export interface DiarizedSegment {
@@ -28,4 +29,5 @@ export interface Meeting {
   transcript: TranscriptMessage[];
   diarization?: DiarizedSegment[];
   summary?: string;
+  summaryVi?: string;
 }

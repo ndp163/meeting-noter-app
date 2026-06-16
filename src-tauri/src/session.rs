@@ -76,6 +76,7 @@ pub struct TranscriptionEventPayload {
     received_at_ms: u128,
     is_result_final: bool, // True for final results, false for partial/streaming
     is_sentence_final: bool, // True when sentence is complete (start new message)
+    start_sec: f32,        // Offset (seconds) of this result within the recording
 }
 
 impl From<&TranscriptionEvent> for TranscriptionEventPayload {
@@ -97,6 +98,7 @@ impl From<&TranscriptionEvent> for TranscriptionEventPayload {
             received_at_ms: current_timestamp_ms(),
             is_result_final,
             is_sentence_final,
+            start_sec: event.result.start_sec,
         }
     }
 }
@@ -128,6 +130,7 @@ pub async fn start(
         result_state.clone(),
         event_tx,
         meeting_id,
+        app_handle.clone(),
     );
 
     let events_handle = spawn_events_handler(app_handle.clone(), event_rx);
@@ -187,12 +190,13 @@ fn spawn_recorder_task(
     result_state: Arc<Mutex<Option<Result<(), String>>>>,
     event_tx: crossbeam_channel::Sender<TranscriptionEvent>,
     meeting_id: String,
+    app_handle: AppHandle,
 ) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn_blocking(move || {
         tokio::runtime::Handle::current().block_on(async move {
             let mut recorder = recorder_arc.lock().await;
             let outcome = recorder
-                .start(Some(event_tx), Some(meeting_id))
+                .start(Some(event_tx), Some(meeting_id), Some(app_handle))
                 .await
                 .map_err(|err| format!("{}", err));
 

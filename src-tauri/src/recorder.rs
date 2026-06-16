@@ -1,7 +1,9 @@
 use anyhow::Result;
+use serde::Serialize;
 use std::future::Future;
 use std::thread;
 use std::time::Duration;
+use tauri::{AppHandle, Emitter};
 use tokio_util::sync::CancellationToken;
 
 use crate::audio::constants::SAMPLE_RATE_48KHZ;
@@ -15,6 +17,27 @@ use crate::bridges::{create_transcriber, Transcriber};
 use crate::config::AudioConfig;
 use crate::types::AudioSource;
 use crossbeam_channel::{Receiver, Sender};
+
+/// Model-readiness signal emitted to the frontend so the UI can show a
+/// "preparing model" state instead of jumping straight to "Listening" while
+/// the ASR engine loads (a cold first-run load that has no other feedback).
+const STATUS_EVENT: &str = "transcription://status";
+
+#[derive(Clone, Serialize)]
+struct StatusEvent {
+    status: String,
+}
+
+fn emit_status(app: &Option<AppHandle>, status: &str) {
+    if let Some(app) = app {
+        let _ = app.emit(
+            STATUS_EVENT,
+            StatusEvent {
+                status: status.to_string(),
+            },
+        );
+    }
+}
 
 /// Where a transcription came from.
 #[derive(Debug, Clone, Copy)]
@@ -91,6 +114,7 @@ impl AudioRecorder {
         &mut self,
         events_tx: Option<Sender<TranscriptionEvent>>,
         meeting_id: Option<String>,
+        app_handle: Option<AppHandle>,
     ) -> Result<()> {
         let has_mic = Mic::new().is_ok();
         if has_mic {
@@ -105,10 +129,14 @@ impl AudioRecorder {
         let sample_rate = SAMPLE_RATE_48KHZ;
 
         if self.transcriber.is_none() {
+            emit_status(&app_handle, "preparing");
             if let Err(e) = self.initialize_transcriber().await {
                 tracing::warn!(error = %e, "Continuing without transcription");
             }
         }
+        // Signal readiness whether warm or freshly loaded, so the UI never
+        // hangs on the preparing state (audio still records even if init fails).
+        emit_status(&app_handle, "ready");
 
         let (audio_tx, audio_rx, mic_tx, mic_rx, speaker_tx, speaker_rx) =
             self.create_channels(sample_rate);

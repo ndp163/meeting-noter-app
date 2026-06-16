@@ -6,6 +6,12 @@ export const summarizeMeeting = async (
   return await invoke<string>("summarize_meeting", { meetingId });
 };
 
+export const translateSummary = async (
+  meetingId: string
+): Promise<string> => {
+  return await invoke<string>("translate_summary", { meetingId });
+};
+
 export const isClaudeAvailable = async (): Promise<boolean> => {
   return await invoke<boolean>("claude_available");
 };

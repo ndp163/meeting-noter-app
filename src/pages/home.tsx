@@ -5,6 +5,7 @@ import { MainContent } from "@/features/home/main-content";
 import {
   getTranscriptionStatus,
   listenToTranscription,
+  listenToTranscriptionStatus,
   startTranscription,
   stopTranscription,
   TranscriptionEventPayload,
@@ -18,7 +19,11 @@ import {
   createNewMeeting,
 } from "@/services/meetings";
 import { diarizeMeeting } from "@/services/diarization";
-import { summarizeMeeting, isClaudeAvailable } from "@/services/summary";
+import {
+  summarizeMeeting,
+  translateSummary,
+  isClaudeAvailable,
+} from "@/services/summary";
 import { useBoundStore } from "@/store";
 import type { TranscriptMessage } from "@/types/meeting";
 import type { MainTab } from "@/features/home/main-content";
@@ -27,12 +32,15 @@ export const HomePage = () => {
   const [activeTab, setActiveTab] = useState<MainTab>("transcript");
   const [isCapturing, setIsCapturing] = useState(false);
   const [isCaptureBusy, setIsCaptureBusy] = useState(false);
+  const [isPreparingModel, setIsPreparingModel] = useState(false);
   const [audioPath, setAudioPath] = useState<string>();
   const [isAutoScroll, setIsAutoScroll] = useState(true);
   const [isDiarizing, setIsDiarizing] = useState(false);
   const [diarizationError, setDiarizationError] = useState<string>();
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [summaryError, setSummaryError] = useState<string>();
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [translateError, setTranslateError] = useState<string>();
   const [claudeReady, setClaudeReady] = useState<boolean>();
 
   // Zustand store
@@ -48,6 +56,7 @@ export const HomePage = () => {
     useBoundStore.use.updateTranscriptInMeeting();
   const setDiarization = useBoundStore.use.setDiarization();
   const setSummary = useBoundStore.use.setSummary();
+  const setSummaryTranslation = useBoundStore.use.setSummaryTranslation();
   const renameSpeaker = useBoundStore.use.renameSpeaker();
   const getCurrentMeeting = useBoundStore.use.getCurrentMeeting();
   const getCapturingMeeting = useBoundStore.use.getCapturingMeeting();
@@ -100,6 +109,25 @@ export const HomePage = () => {
     }
   };
 
+  const handleTranslateSummary = async () => {
+    if (!currentMeetingId || isTranslating) return;
+    setIsTranslating(true);
+    setTranslateError(undefined);
+    try {
+      const summaryVi = await translateSummary(currentMeetingId);
+      setSummaryTranslation(currentMeetingId, summaryVi);
+      const meeting = getCurrentMeeting();
+      if (meeting) {
+        await saveMeeting({ ...meeting, summaryVi });
+      }
+    } catch (error) {
+      console.error("Translation failed", error);
+      setTranslateError(String(error));
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
   const handleRenameSpeaker = async (speakerId: string, label: string) => {
     if (!currentMeetingId) return;
     renameSpeaker(currentMeetingId, speakerId, label);
@@ -128,6 +156,19 @@ export const HomePage = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, currentMeetingId]);
+
+  // Show a "preparing model" state while the ASR engine loads on first record.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    listenToTranscriptionStatus((status) => {
+      setIsPreparingModel(status === "preparing");
+    }).then((release) => {
+      unlisten = release;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, []);
 
   // Detect the Claude Code CLI once so the Summary tab can degrade gracefully.
   useEffect(() => {
@@ -337,6 +378,7 @@ export const HomePage = () => {
         // Stop capture
         await stopTranscription();
         setIsCapturing(false);
+        setIsPreparingModel(false);
 
         // Update meeting status
         if (currentMeetingId) {
@@ -473,6 +515,7 @@ export const HomePage = () => {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         isCapturing={isCapturing}
+        isPreparingModel={isPreparingModel}
         messages={messages}
         currentMeetingId={currentMeetingId}
         audioPath={audioPath}
@@ -485,11 +528,15 @@ export const HomePage = () => {
         onRunDiarization={handleRunDiarization}
         onRenameSpeaker={handleRenameSpeaker}
         summary={currentMeeting?.summary}
+        summaryVi={currentMeeting?.summaryVi}
         isSummarizing={isSummarizing}
+        isTranslating={isTranslating}
         summaryError={summaryError}
+        translateError={translateError}
         canSummarize={canSummarize}
         claudeReady={claudeReady}
         onRunSummary={handleGenerateSummary}
+        onTranslateSummary={handleTranslateSummary}
       />
     </div>
   );
@@ -511,6 +558,7 @@ const mapPayloadToMessage = (
     source: payload.source,
     isFinal: payload.is_result_final,
     sentenceFinal: payload.is_sentence_final,
+    audioOffset: payload.start_sec,
   };
 };
 

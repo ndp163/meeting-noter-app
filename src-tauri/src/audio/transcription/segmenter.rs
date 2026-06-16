@@ -14,6 +14,9 @@ use crate::audio::constants::{
 pub struct Segment {
     pub audio: Vec<f32>,
     pub finality: Finality,
+    /// Offset (seconds) of this segment's start within the stream. Set by the
+    /// pipeline from its sample counter; the segmenter itself leaves it 0.
+    pub start_sec: f32,
 }
 
 /// Tracks one speech stream (e.g. mic or speaker).
@@ -69,6 +72,7 @@ impl Segmenter {
                 segments.push(Segment {
                     audio: std::mem::take(&mut self.buffer),
                     finality: Finality::Segment,
+                    start_sec: 0.0,
                 });
                 self.next_partial_at = MIN_CHUNK_SAMPLES;
             } else if self.buffer.len() >= self.next_partial_at {
@@ -76,6 +80,7 @@ impl Segmenter {
                 segments.push(Segment {
                     audio: self.buffer.clone(),
                     finality: Finality::Partial,
+                    start_sec: 0.0,
                 });
                 self.next_partial_at = self.buffer.len() + PARTIAL_INTERVAL_SAMPLES;
             }
@@ -87,6 +92,7 @@ impl Segmenter {
                 segments.push(Segment {
                     audio: std::mem::take(&mut self.buffer),
                     finality: Finality::Segment,
+                    start_sec: 0.0,
                 });
                 self.next_partial_at = MIN_CHUNK_SAMPLES;
             }
@@ -96,6 +102,7 @@ impl Segmenter {
                     segments.push(Segment {
                         audio: std::mem::take(&mut self.buffer),
                         finality: Finality::Sentence,
+                        start_sec: 0.0,
                     });
                 }
                 self.speaking = false;

@@ -10,6 +10,7 @@ interface DiarizationViewProps {
   canRun: boolean;
   onRun: () => void;
   onRenameSpeaker: (speakerId: string, label: string) => void;
+  onSeek: (seconds: number) => void;
 }
 
 const formatTime = (seconds: number) => {
@@ -26,6 +27,7 @@ export const DiarizationView = ({
   canRun,
   onRun,
   onRenameSpeaker,
+  onSeek,
 }: DiarizationViewProps) => {
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
@@ -123,9 +125,13 @@ export const DiarizationView = ({
                   </button>
                 )}
               </div>
-              <p className="text-base text-custom-text-secondary">
+              <button
+                onClick={() => onSeek(segment.start)}
+                title="Jump to this moment"
+                className="text-base text-custom-text-secondary tabular-nums hover:text-custom-primary hover:underline"
+              >
                 {formatTime(segment.start)}
-              </p>
+              </button>
             </div>
             <p className="text-base text-custom-text-primary whitespace-pre-wrap">
               {segment.text}
