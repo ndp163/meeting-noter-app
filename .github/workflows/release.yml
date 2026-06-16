@@ -1,9 +1,10 @@
 name: release
 
 # Tag-triggered signed release. Push a tag like `v0.1.1` to build the macOS
-# bundle, sign it for the updater, generate latest.json, and publish a GitHub
-# Release. The updater endpoint in tauri.conf.json points at this release's
-# latest.json.
+# bundle and sign it for the updater. Because the app repo is private (the
+# updater fetches over unauthenticated HTTP), the signed bundle + latest.json
+# are published to the PUBLIC repo `ndp163/meeting-noter-releases`, which the
+# updater endpoint in tauri.conf.json points at.
 on:
   push:
     tags:
@@ -12,8 +13,6 @@ on:
 jobs:
   release:
     runs-on: macos-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -33,16 +32,47 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
 
+      # Build + sign only — do NOT create a release here (it would land in this
+      # private repo, where the updater can't reach it).
       - uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "noter ${{ github.ref_name }}"
-          releaseDraft: true
-          prerelease: false
           # arm64 only — libFluidAudioBridge.dylib (CoreML) has no x86_64 slice,
           # so a universal build can't link the Intel half. App is Apple Silicon only.
           args: --target aarch64-apple-darwin
+
+      # Build latest.json by hand, pointing the download URLs at the public repo,
+      # then publish the bundle + signature + manifest there.
+      - name: Publish to releases repo
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          RELEASES_REPO: ndp163/meeting-noter-releases
+        run: |
+          set -euo pipefail
+          BUNDLE_DIR="src-tauri/target/aarch64-apple-darwin/release/bundle/macos"
+          TARBALL=$(ls "$BUNDLE_DIR"/*.app.tar.gz)
+          SIG=$(ls "$BUNDLE_DIR"/*.app.tar.gz.sig)
+          TARBALL_NAME=$(basename "$TARBALL")
+          VERSION="${TAG#v}"
+
+          cat > latest.json <<EOF
+          {
+            "version": "$VERSION",
+            "notes": "See release $TAG",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+              "darwin-aarch64": {
+                "signature": "$(cat "$SIG")",
+                "url": "https://github.com/$RELEASES_REPO/releases/download/$TAG/$TARBALL_NAME"
+              }
+            }
+          }
+          EOF
+
+          gh release create "$TAG" \
+            --repo "$RELEASES_REPO" \
+            --title "noter $TAG" \
+            "$TARBALL" "$SIG" latest.json
