@@ -27,4 +27,5 @@ export interface Meeting {
   audioPath?: string;
   transcript: TranscriptMessage[];
   diarization?: DiarizedSegment[];
+  summary?: string;
 }

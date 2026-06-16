@@ -27,6 +27,7 @@ export interface MeetingsSlice {
     updates: Partial<TranscriptMessage>
   ) => void;
   setIsLoadingMeetings: (isLoading: boolean) => void;
+  setSummary: (meetingId: string, summary: string) => void;
   setDiarization: (meetingId: string, segments: DiarizedSegment[]) => void;
   renameSpeaker: (
     meetingId: string,
@@ -108,6 +109,14 @@ export const createMeetingsSlice: StateCreator<
   setIsLoadingMeetings: (isLoading) =>
     set((state) => {
       state.isLoadingMeetings = isLoading;
+    }),
+
+  setSummary: (meetingId, summary) =>
+    set((state) => {
+      const meeting = state.meetings.find((m) => m.id === meetingId);
+      if (!meeting) return;
+      meeting.summary = summary;
+      meeting.updatedAt = Date.now();
     }),
 
   setDiarization: (meetingId, segments) =>
