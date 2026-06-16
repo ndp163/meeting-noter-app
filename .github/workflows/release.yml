@@ -28,7 +28,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: aarch64-apple-darwin
 
       - name: Install frontend dependencies
         run: pnpm install
@@ -43,4 +43,6 @@ jobs:
           releaseName: "noter ${{ github.ref_name }}"
           releaseDraft: true
           prerelease: false
-          args: --target universal-apple-darwin
+          # arm64 only — libFluidAudioBridge.dylib (CoreML) has no x86_64 slice,
+          # so a universal build can't link the Intel half. App is Apple Silicon only.
+          args: --target aarch64-apple-darwin
