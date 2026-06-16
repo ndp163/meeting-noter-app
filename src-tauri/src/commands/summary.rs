@@ -24,6 +24,12 @@ Output GitHub-flavored markdown with these sections: \
 ## Action Items (bullet list as `- [ ] owner — task`, omit if none). \
 Be concise and do not invent details. The transcript follows on stdin.";
 
+const TRANSLATE_INSTRUCTIONS: &str = "Translate the following meeting summary \
+into Vietnamese. Preserve the markdown structure and heading levels exactly; \
+translate the heading text too. Keep checkbox syntax `- [ ]` intact. \
+Output only the translated markdown with no extra commentary. \
+The summary follows on stdin.";
+
 /// Common install locations to probe before falling back to a login shell.
 /// A bundled macOS `.app` launches with a minimal PATH that omits these, so
 /// the bare binary name often isn't resolvable at runtime.
@@ -107,21 +113,56 @@ pub async fn summarize_meeting(meeting_id: String) -> Result<String, String> {
         return Err("This meeting has no transcript to summarize.".to_string());
     }
 
+    tracing::info!("Summarizing meeting {}", meeting_id);
+    let summary = run_claude(&meeting_id, INSTRUCTIONS, &transcript).await?;
+    if summary.is_empty() {
+        return Err("claude returned an empty summary.".to_string());
+    }
+    Ok(summary)
+}
+
+#[command]
+#[tracing::instrument]
+pub async fn translate_summary(meeting_id: String) -> Result<String, String> {
+    let data_path = paths::get_meeting_data_path(&meeting_id);
+    if !data_path.exists() {
+        return Err(format!("Meeting {} not found", meeting_id));
+    }
+
+    let content = fs::read_to_string(&data_path)
+        .map_err(|e| format!("Failed to read meeting data: {}", e))?;
+    let meeting: Meeting = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse meeting data: {}", e))?;
+
+    let summary = meeting
+        .summary
+        .filter(|s| !s.trim().is_empty())
+        .ok_or("Generate a summary before translating.")?;
+
+    tracing::info!("Translating summary for meeting {}", meeting_id);
+    let translated = run_claude(&meeting_id, TRANSLATE_INSTRUCTIONS, &summary).await?;
+    if translated.is_empty() {
+        return Err("claude returned an empty translation.".to_string());
+    }
+    Ok(translated)
+}
+
+/// Pipe `input` to `claude -p <instructions>` and return its trimmed stdout.
+///
+/// Runs inside the meeting's own data dir (under Application Support, not a
+/// TCC-protected location). Claude Code scans its working directory for
+/// context on startup; left at the app's inherited cwd it can walk into
+/// ~/Pictures, ~/Documents, etc. and trip a macOS permission prompt.
+async fn run_claude(meeting_id: &str, instructions: &str, input: &str) -> Result<String, String> {
     let bin = resolve_claude()
         .await
         .ok_or("Could not find `claude`. Install Claude Code and log in to enable summaries.")?;
 
-    tracing::info!("Summarizing meeting {} via {}", meeting_id, bin.display());
-
-    // Run inside the meeting's own data dir (under Application Support, not a
-    // TCC-protected location). Claude Code scans its working directory for
-    // context on startup; left at the app's inherited cwd it can walk into
-    // ~/Pictures, ~/Documents, etc. and trip a macOS permission prompt.
-    let work_dir = paths::get_meeting_dir(&meeting_id);
+    let work_dir = paths::get_meeting_dir(meeting_id);
 
     let mut child = Command::new(&bin)
         .arg("-p")
-        .arg(INSTRUCTIONS)
+        .arg(instructions)
         .current_dir(&work_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -131,9 +172,9 @@ pub async fn summarize_meeting(meeting_id: String) -> Result<String, String> {
 
     let mut stdin = child.stdin.take().ok_or("Failed to open claude stdin")?;
     stdin
-        .write_all(transcript.as_bytes())
+        .write_all(input.as_bytes())
         .await
-        .map_err(|e| format!("Failed to send transcript to claude: {}", e))?;
+        .map_err(|e| format!("Failed to send input to claude: {}", e))?;
     drop(stdin);
 
     let output = child
@@ -146,13 +187,7 @@ pub async fn summarize_meeting(meeting_id: String) -> Result<String, String> {
         return Err(format!("claude failed: {}", stderr.trim()));
     }
 
-    let summary = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if summary.is_empty() {
-        return Err("claude returned an empty summary.".to_string());
-    }
-
-    tracing::info!("Summary generated for meeting {}", meeting_id);
-    Ok(summary)
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 /// Flatten the transcript into speaker-labelled lines for the model.

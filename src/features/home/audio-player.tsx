@@ -1,5 +1,11 @@
 import { Play, Pause } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import { useWavesurfer } from "@wavesurfer/react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
@@ -7,7 +13,13 @@ interface AudioPlayerProps {
   audioPath?: string;
 }
 
-export const AudioPlayer = ({ audioPath }: AudioPlayerProps) => {
+export interface AudioPlayerHandle {
+  /** Seek to an absolute position (seconds) and start playing. */
+  seek: (seconds: number) => void;
+}
+
+export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
+  ({ audioPath }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentTime, setCurrentTime] = useState("00:00");
   const [totalTime, setTotalTime] = useState("00:00");
@@ -56,6 +68,20 @@ export const AudioPlayer = ({ audioPath }: AudioPlayerProps) => {
     };
   }, [wavesurfer]);
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      seek: (seconds: number) => {
+        if (!wavesurfer) return;
+        const duration = wavesurfer.getDuration();
+        if (duration <= 0) return;
+        wavesurfer.setTime(Math.max(0, Math.min(seconds, duration)));
+        void wavesurfer.play();
+      },
+    }),
+    [wavesurfer],
+  );
+
   const handlePlayPause = () => {
     if (wavesurfer) {
       wavesurfer.playPause();
@@ -101,7 +127,10 @@ export const AudioPlayer = ({ audioPath }: AudioPlayerProps) => {
       </div>
     </div>
   );
-};
+  },
+);
+
+AudioPlayer.displayName = "AudioPlayer";
 
 const formatTime = (seconds: number): string => {
   const mins = Math.floor(seconds / 60);

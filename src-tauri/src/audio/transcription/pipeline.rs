@@ -54,6 +54,9 @@ pub fn run<F>(
 
     let mut segmenter = Segmenter::new();
     let mut resampler = Resampler::new(input_sample_rate, SAMPLE_RATE_16KHZ);
+    // Total 16kHz samples consumed so far, i.e. the current playback position
+    // in the recording. Used to stamp each segment's start offset.
+    let mut cumulative_samples: usize = 0;
 
     'outer: while let Ok(chunk) = rx.recv() {
         let samples = resampler.process(&chunk);
@@ -66,7 +69,13 @@ pub fn run<F>(
             }
         };
 
-        for segment in segmenter.push(voice_prob, &samples) {
+        cumulative_samples += samples.len();
+
+        for mut segment in segmenter.push(voice_prob, &samples) {
+            // The segment ends at the current position; subtract its length
+            // (which includes pre-roll) to get where its speech began.
+            let start_sample = cumulative_samples.saturating_sub(segment.audio.len());
+            segment.start_sec = start_sample as f32 / SAMPLE_RATE_16KHZ as f32;
             if segment_tx.send(segment).is_err() {
                 tracing::error!(stream = %stream_id, "Transcription worker died");
                 break 'outer;
@@ -111,6 +120,7 @@ async fn transcribe_worker(
                     text: text.trim().to_string(),
                     finality: segment.finality,
                     duration_sec,
+                    start_sec: segment.start_sec,
                 });
             }
             Ok(_) => {}

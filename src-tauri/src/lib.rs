@@ -17,7 +17,7 @@ use commands::{
     get_meetings, get_meeting_detail, save_meeting, delete_meeting, get_meeting_audio_path,
     diarize_meeting,
     models_ready, prefetch_models,
-    claude_available, summarize_meeting,
+    claude_available, summarize_meeting, translate_summary,
 };
 use session::RecorderState;
 
@@ -62,6 +62,7 @@ pub async fn run() -> Result<()> {
             prefetch_models,
             claude_available,
             summarize_meeting,
+            translate_summary,
         ])
         .run(tauri::generate_context!())
         .map_err(|e| anyhow::anyhow!(e))

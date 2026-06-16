@@ -29,4 +29,6 @@ pub struct TranscriptionResult {
     pub text: String,
     pub finality: Finality,
     pub duration_sec: f32,
+    /// Offset (seconds) of this result's start within the recording.
+    pub start_sec: f32,
 }

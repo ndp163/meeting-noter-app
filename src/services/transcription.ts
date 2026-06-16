@@ -2,6 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 
 const TRANSCRIPTION_EVENT = "transcription://chunk";
+const TRANSCRIPTION_STATUS_EVENT = "transcription://status";
+
+export type TranscriptionStatus = "preparing" | "ready";
 
 interface RecorderStatusResponse {
   active: boolean;
@@ -27,6 +30,7 @@ export interface TranscriptionEventPayload {
   received_at_ms: number;
   is_result_final: boolean; // True for final results, false for partial/streaming
   is_sentence_final: boolean; // True when sentence is complete (start new message)
+  start_sec: number; // Offset (seconds) of this result within the recording
 }
 
 export const startTranscription = async (meetingId: string) => {
@@ -51,4 +55,13 @@ export const listenToTranscription = async (
   );
 
   return unlisten;
+};
+
+export const listenToTranscriptionStatus = async (
+  handler: (status: TranscriptionStatus) => void
+): Promise<UnlistenFn> => {
+  return await listen<{ status: TranscriptionStatus }>(
+    TRANSCRIPTION_STATUS_EVENT,
+    (event) => handler(event.payload.status)
+  );
 };

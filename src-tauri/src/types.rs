@@ -22,6 +22,8 @@ pub struct TranscriptMessage {
     pub sentence_final: Option<bool>,
     #[serde(alias = "committed_content")]
     pub committed_content: Option<String>,
+    #[serde(default, alias = "audio_offset", skip_serializing_if = "Option::is_none")]
+    pub audio_offset: Option<f32>,
 }
 
 /// One speaker-attributed, transcribed segment from the offline diarization
@@ -55,5 +57,7 @@ pub struct Meeting {
     pub diarization: Option<Vec<DiarizedSegment>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_vi: Option<String>,
 }
 

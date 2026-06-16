@@ -11,7 +11,7 @@ pub use diarization::diarize_meeting;
 
 pub use setup::{models_ready, prefetch_models};
 
-pub use summary::{claude_available, summarize_meeting};
+pub use summary::{claude_available, summarize_meeting, translate_summary};
 
 pub use transcription::{
     start_transcription,

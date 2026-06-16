@@ -5,6 +5,7 @@ interface MessageProps {
   timestamp: string;
   content: string;
   isUser?: boolean;
+  onSeek?: () => void;
 }
 
 export const Message = ({
@@ -12,6 +13,7 @@ export const Message = ({
   timestamp,
   content,
   isUser,
+  onSeek,
 }: MessageProps) => {
   return (
     <div className="bg-white flex flex-col gap-2.5 w-full">
@@ -32,11 +34,27 @@ export const Message = ({
             {label}
           </p>
         </div>
-        <p className="text-base text-custom-text-secondary">{timestamp}</p>
+        {onSeek ? (
+          <button
+            onClick={onSeek}
+            title="Jump to this moment"
+            className="text-base text-custom-text-secondary tabular-nums hover:text-custom-primary hover:underline"
+          >
+            {timestamp}
+          </button>
+        ) : (
+          <p className="text-base text-custom-text-secondary">{timestamp}</p>
+        )}
       </div>
 
-      {/* Message content */}
-      <p className="text-base text-custom-text-primary whitespace-pre-wrap">
+      {/* Message content: clickable to seek when an audio offset is known */}
+      <p
+        onClick={onSeek}
+        className={cn(
+          "text-base text-custom-text-primary whitespace-pre-wrap",
+          onSeek && "cursor-pointer hover:text-custom-primary"
+        )}
+      >
         {content}
       </p>
     </div>

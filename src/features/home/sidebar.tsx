@@ -43,7 +43,12 @@ export const Sidebar = ({
       )}
     >
       {/* Header */}
-      <div className="flex items-center justify-between h-[78px] px-5 py-[23px]">
+      <div
+        className={cn(
+          "flex items-center h-[78px] py-[23px]",
+          isSidebarCollapsed ? "justify-center" : "justify-between",
+        )}
+      >
         {!isSidebarCollapsed && (
           <h1 className="text-xl font-bold text-custom-text-highlight">
             Meeting Noter
@@ -51,7 +56,10 @@ export const Sidebar = ({
         )}
         <button
           onClick={toggleSidebar}
-          className="p-2 hover:bg-gray-100 rounded-lg"
+          className={cn(
+            "p-2 hover:bg-gray-100 rounded-lg",
+            !isSidebarCollapsed && "-mr-2",
+          )}
           title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {isSidebarCollapsed ? (
