@@ -53,5 +53,7 @@ pub struct Meeting {
     pub transcript: Vec<TranscriptMessage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diarization: Option<Vec<DiarizedSegment>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
 }
 

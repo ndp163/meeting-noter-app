@@ -35,7 +35,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dirs = "5.0"
 futures-util = "0.3.31"
 ringbuf = "0.4.8"
-tokio = { version = "1.49.0", features = ["macros", "sync"] }
+tokio = { version = "1.49.0", features = ["macros", "sync", "process", "io-util"] }
 tokio-util = "0.7.18"
 crossbeam-channel = "0.5.15"
 futures = "0.3.31"

@@ -3,6 +3,7 @@ import { Tab } from "@/features/home/tab";
 import { Message } from "@/features/home/message";
 import { AudioPlayer } from "@/features/home/audio-player";
 import { DiarizationView } from "@/features/home/diarization-view";
+import { SummaryView } from "@/features/home/summary-view";
 import { cn } from "@/lib/utils";
 import type { TranscriptMessage, DiarizedSegment } from "@/types/meeting";
 
@@ -23,6 +24,12 @@ interface MainContentProps {
   canDiarize: boolean;
   onRunDiarization: () => void;
   onRenameSpeaker: (speakerId: string, label: string) => void;
+  summary: string | undefined;
+  isSummarizing: boolean;
+  summaryError?: string;
+  canSummarize: boolean;
+  claudeReady: boolean | undefined;
+  onRunSummary: () => void;
 }
 
 export const MainContent = ({
@@ -40,6 +47,12 @@ export const MainContent = ({
   canDiarize,
   onRunDiarization,
   onRenameSpeaker,
+  summary,
+  isSummarizing,
+  summaryError,
+  canSummarize,
+  claudeReady,
+  onRunSummary,
 }: MainContentProps) => {
   return (
     <div className="flex flex-col gap-2.5 flex-1 p-5 overflow-hidden">
@@ -113,9 +126,14 @@ export const MainContent = ({
               onRenameSpeaker={onRenameSpeaker}
             />
           ) : (
-            <div className="text-custom-text-primary">
-              <p>Summary content will be displayed here.</p>
-            </div>
+            <SummaryView
+              summary={summary}
+              isLoading={isSummarizing}
+              error={summaryError}
+              canRun={canSummarize}
+              claudeReady={claudeReady}
+              onRun={onRunSummary}
+            />
           )}
         </div>
       </div>

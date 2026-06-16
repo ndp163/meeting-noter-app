@@ -18,6 +18,7 @@ import {
   createNewMeeting,
 } from "@/services/meetings";
 import { diarizeMeeting } from "@/services/diarization";
+import { summarizeMeeting, isClaudeAvailable } from "@/services/summary";
 import { useBoundStore } from "@/store";
 import type { TranscriptMessage } from "@/types/meeting";
 import type { MainTab } from "@/features/home/main-content";
@@ -30,6 +31,9 @@ export const HomePage = () => {
   const [isAutoScroll, setIsAutoScroll] = useState(true);
   const [isDiarizing, setIsDiarizing] = useState(false);
   const [diarizationError, setDiarizationError] = useState<string>();
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [summaryError, setSummaryError] = useState<string>();
+  const [claudeReady, setClaudeReady] = useState<boolean>();
 
   // Zustand store
   const meetings = useBoundStore.use.meetings();
@@ -43,6 +47,7 @@ export const HomePage = () => {
   const updateTranscriptInMeeting =
     useBoundStore.use.updateTranscriptInMeeting();
   const setDiarization = useBoundStore.use.setDiarization();
+  const setSummary = useBoundStore.use.setSummary();
   const renameSpeaker = useBoundStore.use.renameSpeaker();
   const getCurrentMeeting = useBoundStore.use.getCurrentMeeting();
   const getCapturingMeeting = useBoundStore.use.getCapturingMeeting();
@@ -51,6 +56,11 @@ export const HomePage = () => {
   const messages = currentMeeting?.transcript || [];
   const canDiarize =
     !!currentMeeting && currentMeeting.status === "completed" && !isCapturing;
+  const canSummarize =
+    !!currentMeeting &&
+    currentMeeting.status === "completed" &&
+    !isCapturing &&
+    currentMeeting.transcript.length > 0;
 
   const handleRunDiarization = async () => {
     if (!currentMeetingId || isDiarizing) return;
@@ -68,6 +78,25 @@ export const HomePage = () => {
       setDiarizationError(String(error));
     } finally {
       setIsDiarizing(false);
+    }
+  };
+
+  const handleGenerateSummary = async () => {
+    if (!currentMeetingId || isSummarizing) return;
+    setIsSummarizing(true);
+    setSummaryError(undefined);
+    try {
+      const summary = await summarizeMeeting(currentMeetingId);
+      setSummary(currentMeetingId, summary);
+      const meeting = getCurrentMeeting();
+      if (meeting) {
+        await saveMeeting({ ...meeting, summary });
+      }
+    } catch (error) {
+      console.error("Summary failed", error);
+      setSummaryError(String(error));
+    } finally {
+      setIsSummarizing(false);
     }
   };
 
@@ -99,6 +128,17 @@ export const HomePage = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, currentMeetingId]);
+
+  // Detect the Claude Code CLI once so the Summary tab can degrade gracefully.
+  useEffect(() => {
+    let mounted = true;
+    isClaudeAvailable()
+      .then((ready) => mounted && setClaudeReady(ready))
+      .catch(() => mounted && setClaudeReady(false));
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // Ref for auto-scrolling to bottom
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -444,6 +484,12 @@ export const HomePage = () => {
         canDiarize={canDiarize}
         onRunDiarization={handleRunDiarization}
         onRenameSpeaker={handleRenameSpeaker}
+        summary={currentMeeting?.summary}
+        isSummarizing={isSummarizing}
+        summaryError={summaryError}
+        canSummarize={canSummarize}
+        claudeReady={claudeReady}
+        onRunSummary={handleGenerateSummary}
       />
     </div>
   );
