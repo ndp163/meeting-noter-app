@@ -4,9 +4,16 @@ use std::io::{Seek, Write};
 
 use crate::paths;
 use crate::types::AudioSource;
+use crate::audio::processing::Resampler;
 use crate::audio::constants::{MIXER_BUFFER_CAPACITY, DEFAULT_MIC_GAIN, DEFAULT_SYSTEM_GAIN};
 
 /// Mix microphone and system audio streams and write to WAV file.
+///
+/// `target_rate` is the WAV's sample rate; mic and system audio are resampled
+/// to it first. They can arrive at different rates — a Bluetooth mic forced
+/// into the 16kHz HFP call profile while system audio stays 48kHz — and the
+/// index-pairing mix below assumes both share one rate, so the resample is
+/// what keeps the mic from playing back too fast and the two tracks aligned.
 ///
 /// `has_mic` tells the mixer whether to expect a microphone source. When there
 /// is no mic, system audio is written on its own (otherwise the index-pairing
@@ -14,13 +21,14 @@ use crate::audio::constants::{MIXER_BUFFER_CAPACITY, DEFAULT_MIC_GAIN, DEFAULT_S
 #[tracing::instrument(skip(rx), fields(meeting_id))]
 pub fn mixer(
     rx: Receiver<AudioSource>,
-    sample_rate: u32,
+    target_rate: u32,
+    mic_rate: u32,
     meeting_id: Option<String>,
     has_mic: bool,
 ) {
     let spec = hound::WavSpec {
         channels: 1,
-        sample_rate,
+        sample_rate: target_rate,
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };
@@ -84,14 +92,19 @@ pub fn mixer(
     let mut mic_buf = Vec::<f32>::with_capacity(MIXER_BUFFER_CAPACITY);
     let mut sys_buf = Vec::<f32>::with_capacity(MIXER_BUFFER_CAPACITY);
 
+    // System audio is captured at the target rate already; only the mic can
+    // arrive at a different rate (e.g. a Bluetooth HFP mic at 16kHz).
+    let mut mic_resampler = Resampler::new(mic_rate, target_rate);
+
     let mic_gain = DEFAULT_MIC_GAIN;
     let sys_gain = DEFAULT_SYSTEM_GAIN;
-    
-    tracing::info!(sample_rate, mic_gain, sys_gain, has_mic, "Mixer started for WAV recording");
+
+    tracing::info!(target_rate, mic_rate, mic_gain, sys_gain, has_mic, "Mixer started for WAV recording");
 
     loop {
         match rx.recv() {
             Ok(AudioSource::Mic(data)) => {
+                let data = mic_resampler.process(&data);
                 write_track(&mut mic_writer, &data, mic_gain);
                 mic_buf.extend(data);
             }

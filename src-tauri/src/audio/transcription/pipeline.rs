@@ -16,7 +16,7 @@
 
 use super::segmenter::{Segment, Segmenter};
 use super::types::{Finality, TranscriptionResult};
-use crate::audio::constants::{MIN_CHUNK_SAMPLES, SAMPLE_RATE_16KHZ};
+use crate::audio::constants::{MIN_CHUNK_SAMPLES, SAMPLE_RATE_16KHZ, VAD_FRAME_SAMPLES};
 use crate::audio::processing::Resampler;
 use crate::bridges::{SpeechRecognizer, Transcriber};
 use std::sync::Arc;
@@ -54,31 +54,38 @@ pub fn run<F>(
 
     let mut segmenter = Segmenter::new();
     let mut resampler = Resampler::new(input_sample_rate, SAMPLE_RATE_16KHZ);
+    // Resampled 16kHz audio accumulates here and is scored in fixed
+    // VAD_FRAME_SAMPLES windows, since the VAD truncates anything larger.
+    let mut frame_buf: Vec<f32> = Vec::new();
     // Total 16kHz samples consumed so far, i.e. the current playback position
     // in the recording. Used to stamp each segment's start offset.
     let mut cumulative_samples: usize = 0;
 
     'outer: while let Ok(chunk) = rx.recv() {
-        let samples = resampler.process(&chunk);
+        frame_buf.extend(resampler.process(&chunk));
 
-        let voice_prob = match transcriber.vad.process(&stream_id, &samples) {
-            Ok(prob) => prob,
-            Err(e) => {
-                tracing::error!(stream = %stream_id, error = %e, "VAD processing failed");
-                continue;
-            }
-        };
+        while frame_buf.len() >= VAD_FRAME_SAMPLES {
+            let frame: Vec<f32> = frame_buf.drain(..VAD_FRAME_SAMPLES).collect();
 
-        cumulative_samples += samples.len();
+            let voice_prob = match transcriber.vad.process(&stream_id, &frame) {
+                Ok(prob) => prob,
+                Err(e) => {
+                    tracing::error!(stream = %stream_id, error = %e, "VAD processing failed");
+                    continue;
+                }
+            };
 
-        for mut segment in segmenter.push(voice_prob, &samples) {
-            // The segment ends at the current position; subtract its length
-            // (which includes pre-roll) to get where its speech began.
-            let start_sample = cumulative_samples.saturating_sub(segment.audio.len());
-            segment.start_sec = start_sample as f32 / SAMPLE_RATE_16KHZ as f32;
-            if segment_tx.send(segment).is_err() {
-                tracing::error!(stream = %stream_id, "Transcription worker died");
-                break 'outer;
+            cumulative_samples += frame.len();
+
+            for mut segment in segmenter.push(voice_prob, &frame) {
+                // The segment ends at the current position; subtract its length
+                // (which includes pre-roll) to get where its speech began.
+                let start_sample = cumulative_samples.saturating_sub(segment.audio.len());
+                segment.start_sec = start_sample as f32 / SAMPLE_RATE_16KHZ as f32;
+                if segment_tx.send(segment).is_err() {
+                    tracing::error!(stream = %stream_id, "Transcription worker died");
+                    break 'outer;
+                }
             }
         }
     }

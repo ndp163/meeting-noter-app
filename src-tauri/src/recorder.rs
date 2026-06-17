@@ -116,12 +116,19 @@ impl AudioRecorder {
         meeting_id: Option<String>,
         app_handle: Option<AppHandle>,
     ) -> Result<()> {
-        let has_mic = Mic::new().is_ok();
+        // Probe the mic to learn its real capture rate. A Bluetooth headset
+        // used as input gets forced into the 16kHz HFP call profile, so this
+        // is often not 48kHz; using the actual rate keeps the WAV and the
+        // transcription resampler correct (otherwise the mic plays back ~3x
+        // too fast and the ASR is fed garbled audio).
+        let mic_rate = Mic::new().ok().map(|m| m.sample_rate());
+        let has_mic = mic_rate.is_some();
         if has_mic {
-            tracing::info!("Microphone available");
+            tracing::info!(?mic_rate, "Microphone available");
         } else {
             tracing::warn!("Microphone not available - continuing with speaker only");
         }
+        let mic_rate = mic_rate.unwrap_or(SAMPLE_RATE_48KHZ);
 
         // macOS system audio runs at 48kHz; we record the WAV at that rate and
         // resample to 16kHz inside the transcription pipeline. We cannot probe
@@ -141,8 +148,8 @@ impl AudioRecorder {
         let (audio_tx, audio_rx, mic_tx, mic_rx, speaker_tx, speaker_rx) =
             self.create_channels(sample_rate);
 
-        self.spawn_mixer(audio_rx, sample_rate, meeting_id, has_mic);
-        self.spawn_pipelines(mic_rx, speaker_rx, events_tx, sample_rate);
+        self.spawn_mixer(audio_rx, sample_rate, mic_rate, meeting_id, has_mic);
+        self.spawn_pipelines(mic_rx, speaker_rx, events_tx, mic_rate, sample_rate);
         self.run_streams(has_mic, self.config.chunk_size, mic_tx, speaker_tx, audio_tx)
             .await?;
 
@@ -193,12 +200,13 @@ impl AudioRecorder {
     fn spawn_mixer(
         &self,
         audio_rx: Receiver<AudioSource>,
-        sample_rate: u32,
+        target_rate: u32,
+        mic_rate: u32,
         meeting_id: Option<String>,
         has_mic: bool,
     ) {
         tokio::task::spawn_blocking(move || {
-            mixer(audio_rx, sample_rate, meeting_id, has_mic);
+            mixer(audio_rx, target_rate, mic_rate, meeting_id, has_mic);
             tracing::debug!("Mixer task completed");
         });
     }
@@ -209,15 +217,16 @@ impl AudioRecorder {
         mic_rx: Receiver<Vec<f32>>,
         speaker_rx: Receiver<Vec<f32>>,
         events_tx: Option<Sender<TranscriptionEvent>>,
-        sample_rate: u32,
+        mic_rate: u32,
+        speaker_rate: u32,
     ) {
         let Some(transcriber) = self.transcriber.clone() else {
             tracing::warn!("No transcription engine - audio will be recorded but not transcribed");
             return;
         };
 
-        self.spawn_pipeline(Source::Mic, transcriber.clone(), mic_rx, events_tx.clone(), sample_rate);
-        self.spawn_pipeline(Source::Speaker, transcriber, speaker_rx, events_tx, sample_rate);
+        self.spawn_pipeline(Source::Mic, transcriber.clone(), mic_rx, events_tx.clone(), mic_rate);
+        self.spawn_pipeline(Source::Speaker, transcriber, speaker_rx, events_tx, speaker_rate);
     }
 
     /// The pipeline loop is blocking (sync VAD FFI + channel reads), so it runs

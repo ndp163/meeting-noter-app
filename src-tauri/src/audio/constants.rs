@@ -50,6 +50,15 @@ pub const SEGMENT_FLUSH_SAMPLES: usize = SAMPLE_RATE_16KHZ as usize * 4;
 /// continuous speech so the buffer (and re-transcription cost) stays bounded.
 pub const MAX_BUFFER_SAMPLES: usize = SAMPLE_RATE_16KHZ as usize * 8;
 
+/// VAD model window size in 16kHz samples. FluidAudio's `VadManager` consumes
+/// exactly this many samples per call: it pads a shorter chunk but *truncates*
+/// a longer one, silently dropping the overflow. The pipeline therefore
+/// re-chunks resampled audio to this size before scoring, so detection is
+/// independent of the capture device's sample rate (e.g. a 16kHz Bluetooth
+/// mic vs a 48kHz built-in mic). 4096 samples ≈ 0.25s, which is the cadence
+/// the silence/segment thresholds below assume.
+pub const VAD_FRAME_SAMPLES: usize = 4096;
+
 /// Voice probability above which a chunk counts as speech.
 pub const VAD_THRESHOLD: f32 = 0.8;
 

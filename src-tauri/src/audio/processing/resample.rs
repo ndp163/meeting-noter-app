@@ -1,9 +1,11 @@
-//! Streaming resampler that downsamples audio to the transcription rate.
+//! Streaming resampler between two sample rates.
 //!
-//! For integer ratios (e.g. 48kHz -> 16kHz) it applies an anti-aliasing
-//! low-pass FIR before decimating, which avoids the high-frequency aliasing
-//! that plain "take every Nth sample" decimation produces. State (filter
-//! history) is kept across chunks, so create one `Resampler` per stream.
+//! For integer downsample ratios (e.g. 48kHz -> 16kHz) it applies an
+//! anti-aliasing low-pass FIR before decimating, which avoids the
+//! high-frequency aliasing that plain "take every Nth sample" decimation
+//! produces. State (filter history) is kept across chunks, so create one
+//! `Resampler` per stream. Other ratios (upsampling, e.g. a Bluetooth mic's
+//! 16kHz HFP stream -> 48kHz, or non-integer rates) use linear interpolation.
 
 use std::f32::consts::PI;
 
@@ -21,8 +23,9 @@ enum Mode {
     Passthrough,
     /// Integer downsample with anti-aliasing.
     Decimate(FirDecimator),
-    /// Non-integer ratio fallback: plain decimation (no anti-alias).
-    LinearDecimate { ratio: f32 },
+    /// Any other ratio (upsample or non-integer downsample): linear
+    /// interpolation. `ratio` is input samples per output sample (in/out).
+    Linear { ratio: f32 },
 }
 
 impl Resampler {
@@ -40,7 +43,7 @@ impl Resampler {
             }
         } else {
             Self {
-                mode: Mode::LinearDecimate {
+                mode: Mode::Linear {
                     ratio: in_rate as f32 / out_rate as f32,
                 },
             }
@@ -52,7 +55,7 @@ impl Resampler {
         match &mut self.mode {
             Mode::Passthrough => input.to_vec(),
             Mode::Decimate(fir) => fir.process(input),
-            Mode::LinearDecimate { ratio } => linear_decimate(input, *ratio),
+            Mode::Linear { ratio } => linear_resample(input, *ratio),
         }
     }
 }
@@ -103,16 +106,23 @@ impl FirDecimator {
     }
 }
 
-/// Plain decimation by a fractional ratio (no anti-aliasing). Fallback only.
-fn linear_decimate(input: &[f32], ratio: f32) -> Vec<f32> {
+/// Linear interpolation by a fractional ratio (input samples per output
+/// sample). Handles both upsampling (`ratio < 1`) and non-integer downsampling.
+/// No anti-aliasing on the downsample path. Stateless per chunk: a sub-sample
+/// discontinuity can occur at chunk boundaries, negligible for speech.
+fn linear_resample(input: &[f32], ratio: f32) -> Vec<f32> {
     if input.is_empty() {
         return Vec::new();
     }
     let out_len = (input.len() as f32 / ratio) as usize;
     let mut out = Vec::with_capacity(out_len);
     for i in 0..out_len {
-        let idx = (i as f32 * ratio) as usize;
-        if idx < input.len() {
+        let pos = i as f32 * ratio;
+        let idx = pos as usize;
+        if idx + 1 < input.len() {
+            let frac = pos - idx as f32;
+            out.push(input[idx] * (1.0 - frac) + input[idx + 1] * frac);
+        } else if idx < input.len() {
             out.push(input[idx]);
         } else {
             break;
@@ -180,6 +190,16 @@ mod tests {
         // DC gain is unity; interior samples should sit near 1.0.
         let mid = out[out.len() / 2];
         assert!((mid - 1.0).abs() < 0.01, "mid={mid}");
+    }
+
+    #[test]
+    fn upsamples_by_integer_factor() {
+        // A Bluetooth mic's 16kHz HFP stream -> 48kHz: ~3x as many samples.
+        let mut r = Resampler::new(16000, 48000);
+        let out = r.process(&[0.0, 1.0, 2.0, 3.0]);
+        assert!((out.len() as i32 - 12).abs() <= 1, "len={}", out.len());
+        // Interpolated, not zero-order hold: a value sits between input points.
+        assert!(out.iter().any(|&x| x > 0.0 && x < 1.0));
     }
 
     #[test]
