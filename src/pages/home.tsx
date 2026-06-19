@@ -22,6 +22,7 @@ import { diarizeMeeting } from "@/services/diarization";
 import {
   summarizeMeeting,
   translateSummary,
+  generateTitle,
   isClaudeAvailable,
 } from "@/services/summary";
 import { useBoundStore } from "@/store";
@@ -134,6 +135,22 @@ export const HomePage = () => {
     const meeting = getCurrentMeeting();
     if (meeting) {
       await saveMeeting(meeting);
+    }
+  };
+
+  // After a recording ends, give still-"Untitled" meetings a generated title.
+  // Fire-and-forget: it must not block the capture toggle, and it silently
+  // no-ops when Claude is unavailable or there's nothing to title.
+  const autoGenerateTitle = async (meetingId: string) => {
+    try {
+      const title = await generateTitle(meetingId);
+      updateMeeting(meetingId, { title });
+      const meeting = meetings.find((m) => m.id === meetingId);
+      if (meeting) {
+        await saveMeeting({ ...meeting, title });
+      }
+    } catch (error) {
+      console.error("Auto title generation failed", error);
     }
   };
 
@@ -388,6 +405,14 @@ export const HomePage = () => {
             await saveMeeting({ ...meeting, status: "completed" });
             const path = await getMeetingAudioPath(meeting.id);
             setAudioPath(path);
+
+            if (
+              claudeReady &&
+              meeting.title === "Untitled" &&
+              meeting.transcript.length > 0
+            ) {
+              void autoGenerateTitle(meeting.id);
+            }
           }
         }
       } else {

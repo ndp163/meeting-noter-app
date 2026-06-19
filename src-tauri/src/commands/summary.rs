@@ -24,6 +24,10 @@ Output GitHub-flavored markdown with these sections: \
 ## Action Items (bullet list as `- [ ] owner — task`, omit if none). \
 Be concise and do not invent details. The transcript follows on stdin.";
 
+const TITLE_INSTRUCTIONS: &str = "Generate a short, descriptive title for this \
+meeting transcript. Maximum 6 words. Output the title text only — no quotes, \
+no markdown, no trailing punctuation, no commentary. The transcript follows on stdin.";
+
 const TRANSLATE_INSTRUCTIONS: &str = "Translate the following meeting summary \
 into Vietnamese. Preserve the markdown structure and heading levels exactly; \
 translate the heading text too. Keep checkbox syntax `- [ ]` intact. \
@@ -119,6 +123,32 @@ pub async fn summarize_meeting(meeting_id: String) -> Result<String, String> {
         return Err("claude returned an empty summary.".to_string());
     }
     Ok(summary)
+}
+
+#[command]
+#[tracing::instrument]
+pub async fn generate_title(meeting_id: String) -> Result<String, String> {
+    let data_path = paths::get_meeting_data_path(&meeting_id);
+    if !data_path.exists() {
+        return Err(format!("Meeting {} not found", meeting_id));
+    }
+
+    let content = fs::read_to_string(&data_path)
+        .map_err(|e| format!("Failed to read meeting data: {}", e))?;
+    let meeting: Meeting = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse meeting data: {}", e))?;
+
+    let transcript = build_transcript(&meeting);
+    if transcript.trim().is_empty() {
+        return Err("This meeting has no transcript to title.".to_string());
+    }
+
+    tracing::info!("Generating title for meeting {}", meeting_id);
+    let title = run_claude(&meeting_id, TITLE_INSTRUCTIONS, &transcript).await?;
+    if title.is_empty() {
+        return Err("claude returned an empty title.".to_string());
+    }
+    Ok(title)
 }
 
 #[command]
