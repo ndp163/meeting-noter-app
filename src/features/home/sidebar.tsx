@@ -6,6 +6,7 @@ import {
   Pencil,
   ChevronLeft,
   ChevronRight,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Meeting } from "@/types/meeting";
@@ -20,6 +21,7 @@ interface SidebarProps {
   activeMeetingId?: string;
   isCapturing: boolean;
   isCaptureBusy?: boolean;
+  titlingMeetingId?: string | null;
 }
 
 export const Sidebar = ({
@@ -31,6 +33,7 @@ export const Sidebar = ({
   activeMeetingId,
   isCapturing,
   isCaptureBusy,
+  titlingMeetingId,
 }: SidebarProps) => {
   const isSidebarCollapsed = useBoundStore.use.isSidebarCollapsed();
   const toggleSidebar = useBoundStore.use.toggleSidebar();
@@ -117,6 +120,7 @@ export const Sidebar = ({
               onDelete={() => onDeleteMeeting(meeting.id)}
               onRename={(title) => onRenameMeeting(meeting.id, title)}
               isCollapsed={isSidebarCollapsed}
+              isTitling={meeting.id === titlingMeetingId}
             />
           ))
         )}
@@ -132,6 +136,7 @@ interface MeetingCardProps {
   onDelete: () => void;
   onRename: (title: string) => void;
   isCollapsed: boolean;
+  isTitling?: boolean;
 }
 
 const MeetingCard = ({
@@ -141,6 +146,7 @@ const MeetingCard = ({
   onDelete,
   onRename,
   isCollapsed,
+  isTitling,
 }: MeetingCardProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState(meeting.title);
@@ -217,6 +223,13 @@ const MeetingCard = ({
             }}
             className="text-base text-custom-text-primary font-medium bg-transparent border-b border-custom-text-secondary outline-none w-full"
           />
+        ) : isTitling ? (
+          <div className="flex items-center gap-1.5 min-w-0 text-custom-text-secondary">
+            <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+            <span className="text-base font-medium italic truncate">
+              Generating title…
+            </span>
+          </div>
         ) : (
           <div className="flex items-center gap-1.5 min-w-0">
             <p
