@@ -43,6 +43,7 @@ export const HomePage = () => {
   const [isTranslating, setIsTranslating] = useState(false);
   const [translateError, setTranslateError] = useState<string>();
   const [claudeReady, setClaudeReady] = useState<boolean>();
+  const [titlingMeetingId, setTitlingMeetingId] = useState<string | null>(null);
 
   // Zustand store
   const meetings = useBoundStore.use.meetings();
@@ -142,6 +143,7 @@ export const HomePage = () => {
   // Fire-and-forget: it must not block the capture toggle, and it silently
   // no-ops when Claude is unavailable or there's nothing to title.
   const autoGenerateTitle = async (meetingId: string) => {
+    setTitlingMeetingId(meetingId);
     try {
       const title = await generateTitle(meetingId);
       updateMeeting(meetingId, { title });
@@ -151,6 +153,8 @@ export const HomePage = () => {
       }
     } catch (error) {
       console.error("Auto title generation failed", error);
+    } finally {
+      setTitlingMeetingId(null);
     }
   };
 
@@ -533,6 +537,7 @@ export const HomePage = () => {
         onRenameMeeting={handleRenameMeeting}
         isCapturing={isCapturing}
         isCaptureBusy={isCaptureBusy}
+        titlingMeetingId={titlingMeetingId}
       />
 
       {/* Main Content */}
