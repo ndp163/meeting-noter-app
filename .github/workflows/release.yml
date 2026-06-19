@@ -3,7 +3,7 @@ name: release
 # One-click release. Go to Actions → release → Run workflow, pick the bump
 # (patch/minor/major). The job bumps the version in package.json + tauri.conf.json,
 # commits + tags it, builds and signs the macOS bundle, then publishes the signed
-# bundle + latest.json to the PUBLIC repo `ndp163/meeting-noter-release` (the
+# bundle + latest.json to the PUBLIC repo `ndp163/meeting-noter-releases` (the
 # app repo is private, so the updater fetches the manifest from there).
 on:
   workflow_dispatch:
@@ -74,7 +74,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           TAG: ${{ steps.bump.outputs.tag }}
           VERSION: ${{ steps.bump.outputs.version }}
-          RELEASES_REPO: ndp163/meeting-noter-release
+          RELEASES_REPO: ndp163/meeting-noter-releases
         run: |
           set -euo pipefail
           BUNDLE_DIR="src-tauri/target/aarch64-apple-darwin/release/bundle/macos"
