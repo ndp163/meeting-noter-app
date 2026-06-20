@@ -78,9 +78,11 @@ pub fn run<F>(
             cumulative_samples += frame.len();
 
             for mut segment in segmenter.push(voice_prob, &frame) {
-                // The segment ends at the current position; subtract its length
-                // (which includes pre-roll) to get where its speech began.
-                let start_sample = cumulative_samples.saturating_sub(segment.audio.len());
+                // The segment's speech ended `trailing_trimmed` samples before
+                // the current position (that tail of silence was dropped), and
+                // spans `audio.len()` back from there including pre-roll.
+                let end_sample = cumulative_samples.saturating_sub(segment.trailing_trimmed);
+                let start_sample = end_sample.saturating_sub(segment.audio.len());
                 segment.start_sec = start_sample as f32 / SAMPLE_RATE_16KHZ as f32;
                 if segment_tx.send(segment).is_err() {
                     tracing::error!(stream = %stream_id, "Transcription worker died");
@@ -123,9 +125,21 @@ async fn transcribe_worker(
 
         match asr.transcribe(&audio).await {
             Ok(text) if !text.trim().is_empty() => {
+                let text = text.trim().to_string();
+                // A mid-utterance flush (buffer/length cap, not a real pause)
+                // that happens to land on terminal punctuation is a genuine
+                // sentence end: promote it so a long unbroken monologue is
+                // split into sentences instead of arbitrary length-based chunks.
+                let finality = if segment.finality == Finality::Segment
+                    && ends_sentence(&text)
+                {
+                    Finality::Sentence
+                } else {
+                    segment.finality
+                };
                 on_result(TranscriptionResult {
-                    text: text.trim().to_string(),
-                    finality: segment.finality,
+                    text,
+                    finality,
                     duration_sec,
                     start_sec: segment.start_sec,
                 });
@@ -136,6 +150,17 @@ async fn transcribe_worker(
             }
         }
     }
+}
+
+/// Whether `text` reads as a finished sentence, i.e. its last non-quote,
+/// non-bracket character is terminal punctuation. Handles ASCII and the
+/// common full-width CJK marks so non-Latin transcripts work too.
+fn ends_sentence(text: &str) -> bool {
+    text.trim_end()
+        .trim_end_matches(['"', '\'', ')', ']', '}', '»', '”', '’'])
+        .chars()
+        .next_back()
+        .is_some_and(|c| matches!(c, '.' | '!' | '?' | '…' | '。' | '！' | '？'))
 }
 
 /// A unique id per stream so mic and speaker keep independent VAD state.
