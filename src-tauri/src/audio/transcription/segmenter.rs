@@ -7,13 +7,17 @@
 use super::types::Finality;
 use crate::audio::constants::{
     MAX_BUFFER_SAMPLES, MIN_CHUNK_SAMPLES, PARTIAL_INTERVAL_SAMPLES, PRE_ROLL_SAMPLES,
-    SEGMENT_FLUSH_SAMPLES, SILENCE_FRAMES_TO_END, VAD_THRESHOLD,
+    SEGMENT_FLUSH_SAMPLES, SILENCE_FRAMES_TO_END, VAD_ENTER_THRESHOLD, VAD_EXIT_THRESHOLD,
 };
 
 /// Audio ready to transcribe, tagged with how final it is.
 pub struct Segment {
     pub audio: Vec<f32>,
     pub finality: Finality,
+    /// Trailing silence samples trimmed off the end of `audio` before emit.
+    /// The pipeline adds these back when computing where the segment ends in
+    /// the stream, so a trimmed tail doesn't drag `start_sec` forward.
+    pub trailing_trimmed: usize,
     /// Offset (seconds) of this segment's start within the stream. Set by the
     /// pipeline from its sample counter; the segmenter itself leaves it 0.
     pub start_sec: f32,
@@ -27,6 +31,11 @@ pub struct Segmenter {
     pre_roll: Vec<f32>,
     speaking: bool,
     silence_frames: usize,
+    /// Samples appended since the last voiced frame. Silent frames are still
+    /// buffered so a brief VAD dip mid-word doesn't punch a hole in the audio,
+    /// but this trailing run is trimmed before a segment is emitted so the ASR
+    /// never sees the dead air (which it tends to hallucinate words into).
+    trailing_silence: usize,
     /// Buffer length at which the next streaming preview is emitted.
     next_partial_at: usize,
 }
@@ -38,9 +47,17 @@ impl Default for Segmenter {
             pre_roll: Vec::new(),
             speaking: false,
             silence_frames: 0,
+            trailing_silence: 0,
             next_partial_at: MIN_CHUNK_SAMPLES,
         }
     }
+}
+
+/// Drop `count` trailing samples from `buf`, returning the trimmed audio.
+fn take_trimmed(buf: &mut Vec<f32>, trailing: usize) -> Vec<f32> {
+    let keep = buf.len().saturating_sub(trailing);
+    buf.truncate(keep);
+    std::mem::take(buf)
 }
 
 impl Segmenter {
@@ -57,8 +74,18 @@ impl Segmenter {
     pub fn push(&mut self, voice_prob: f32, samples: &[f32]) -> Vec<Segment> {
         let mut segments = Vec::new();
 
-        if voice_prob > VAD_THRESHOLD {
+        // Hysteresis: a new utterance needs a confident voiced frame to start,
+        // but once speaking we hold on through quieter frames so trailing words
+        // aren't mistaken for silence and clipped.
+        let is_voice = if self.speaking {
+            voice_prob > VAD_EXIT_THRESHOLD
+        } else {
+            voice_prob > VAD_ENTER_THRESHOLD
+        };
+
+        if is_voice {
             self.silence_frames = 0;
+            self.trailing_silence = 0;
             if !self.speaking {
                 self.speaking = true;
                 self.buffer = std::mem::take(&mut self.pre_roll);
@@ -72,6 +99,7 @@ impl Segmenter {
                 segments.push(Segment {
                     audio: std::mem::take(&mut self.buffer),
                     finality: Finality::Segment,
+                    trailing_trimmed: 0,
                     start_sec: 0.0,
                 });
                 self.next_partial_at = MIN_CHUNK_SAMPLES;
@@ -80,6 +108,7 @@ impl Segmenter {
                 segments.push(Segment {
                     audio: self.buffer.clone(),
                     finality: Finality::Partial,
+                    trailing_trimmed: 0,
                     start_sec: 0.0,
                 });
                 self.next_partial_at = self.buffer.len() + PARTIAL_INTERVAL_SAMPLES;
@@ -87,26 +116,35 @@ impl Segmenter {
         } else if self.speaking {
             self.silence_frames += 1;
             self.buffer.extend_from_slice(samples);
+            self.trailing_silence += samples.len();
 
             if self.buffer.len() >= SEGMENT_FLUSH_SAMPLES {
+                let trimmed = self.trailing_silence;
+                let audio = take_trimmed(&mut self.buffer, trimmed);
+                self.trailing_silence = 0;
                 segments.push(Segment {
-                    audio: std::mem::take(&mut self.buffer),
+                    audio,
                     finality: Finality::Segment,
+                    trailing_trimmed: trimmed,
                     start_sec: 0.0,
                 });
                 self.next_partial_at = MIN_CHUNK_SAMPLES;
             }
 
             if self.silence_frames > SILENCE_FRAMES_TO_END {
-                if !self.buffer.is_empty() {
+                let trimmed = self.trailing_silence;
+                let audio = take_trimmed(&mut self.buffer, trimmed);
+                if !audio.is_empty() {
                     segments.push(Segment {
-                        audio: std::mem::take(&mut self.buffer),
+                        audio,
                         finality: Finality::Sentence,
+                        trailing_trimmed: trimmed,
                         start_sec: 0.0,
                     });
                 }
                 self.speaking = false;
                 self.silence_frames = 0;
+                self.trailing_silence = 0;
                 self.next_partial_at = MIN_CHUNK_SAMPLES;
             }
         } else {
@@ -126,7 +164,7 @@ impl Segmenter {
 mod tests {
     use super::*;
 
-    const VOICE: f32 = VAD_THRESHOLD + 0.1;
+    const VOICE: f32 = VAD_ENTER_THRESHOLD + 0.1;
     const SILENCE: f32 = 0.0;
 
     #[test]

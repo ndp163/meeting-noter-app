@@ -59,8 +59,15 @@ pub const MAX_BUFFER_SAMPLES: usize = SAMPLE_RATE_16KHZ as usize * 8;
 /// the silence/segment thresholds below assume.
 pub const VAD_FRAME_SAMPLES: usize = 4096;
 
-/// Voice probability above which a chunk counts as speech.
-pub const VAD_THRESHOLD: f32 = 0.8;
+/// Voice probability above which a *new* utterance starts. Kept high so room
+/// noise and keystrokes don't trip speech detection.
+pub const VAD_ENTER_THRESHOLD: f32 = 0.8;
+
+/// Voice probability below which an *ongoing* utterance is treated as silence.
+/// Lower than the enter threshold (hysteresis): once speaking, soft trailing
+/// words and quiet talkers stay above this so their tails aren't clipped and
+/// the sentence isn't ended prematurely.
+pub const VAD_EXIT_THRESHOLD: f32 = 0.35;
 
 /// Consecutive silent chunks that end a sentence (~2s at 0.25s/chunk).
 pub const SILENCE_FRAMES_TO_END: usize = 8;
