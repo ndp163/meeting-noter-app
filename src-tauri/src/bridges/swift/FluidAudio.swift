@@ -21,90 +21,61 @@ struct DiarizedSegment: Codable {
     let text: String
 }
 
-@objc public class FluidAudioBridge: NSObject {
-    var vadManager: VadManager?
+// All model managers and stream state live inside this actor. Actor isolation
+// serializes every read/write of the shared reference-typed properties
+// (asrManager/models/diarizer/vadManager) and the VAD state dict, which is what
+// prevents the over-release/use-after-free crash: previously concurrent Swift
+// Tasks (transcribe, diarize, prefetch, shutdown) mutated these from different
+// threads, racing ARC's non-atomic retain/release on the CoreML objects.
+actor FluidAudioBridge {
+    private var vadManager: VadManager?
     private var asrManager: AsrManager?
     private var models: AsrModels?
     private var diarizer: DiarizerManager?
     private let modelVersion: AsrModelVersion = .v2 // English-only, faster
-    
-    // VAD state tracking - use a thread-safe queue for access
-    private var vadStates: [String: VadStreamState] = [:] // Key = stream ID
-    private let vadStatesQueue = DispatchQueue(label: "com.noter.vadStates", attributes: .concurrent)
-    
-    @objc public static let shared = FluidAudioBridge()
-    
-    private override init() {
-        super.init()
-    }
 
-    // Thread-safe VAD state accessors
-    func getVadState(id: String) -> VadStreamState? {
-        return vadStatesQueue.sync {
-            return vadStates[id]
-        }
-    }
+    // VAD per-stream state, keyed by stream ID. Actor-isolated, so no separate
+    // queue is needed anymore.
+    private var vadStates: [String: VadStreamState] = [:]
 
-    func setVadState(id: String, state: VadStreamState) {
-        vadStatesQueue.sync(flags: .barrier) {
-            self.vadStates[id] = state
-        }
-    }
+    static let shared = FluidAudioBridge()
 
-    func removeVadState(id: String) {
-        vadStatesQueue.sync(flags: .barrier) {
-            self.vadStates.removeValue(forKey: id)
-        }
-    }
+    private init() {}
 
-    @objc public func initialize(modelPath: String?, completion: @escaping (Bool, String?) -> Void) {
+    // MARK: - Initialization
+
+    func initialize(modelPath: String?) async throws {
         print("Swift FluidAudio: Starting initialization")
-        Task {
-            do {
-                // Initialize VAD
-                print("Swift FluidAudio: Initializing VAD...")
-                self.vadManager = try await VadManager(
-                    config: VadConfig(defaultThreshold: 0.5)
-                )
-                print("Swift FluidAudio: VAD initialized")
-                
-                // Initialize ASR
-                print("Swift FluidAudio: Loading Parakeet models...")
-                let startLoad = Date()
-                self.models = try await AsrModels.downloadAndLoad(version: self.modelVersion)
-                let loadTime = Date().timeIntervalSince(startLoad)
-                print("Swift FluidAudio: Models loaded in \(String(format: "%.2f", loadTime))s")
-                
-                self.asrManager = AsrManager(config: .default)
-                try await self.asrManager?.initialize(models: self.models!)
-                print("Swift FluidAudio: ASR initialized successfully")
-                
-                completion(true, nil)
-            } catch {
-                print("Swift FluidAudio: Initialization error: \(error)")
-                completion(false, error.localizedDescription)
-            }
-        }
+
+        // Initialize VAD
+        print("Swift FluidAudio: Initializing VAD...")
+        self.vadManager = try await VadManager(
+            config: VadConfig(defaultThreshold: 0.5)
+        )
+        print("Swift FluidAudio: VAD initialized")
+
+        // Initialize ASR
+        print("Swift FluidAudio: Loading Parakeet models...")
+        let models = try await AsrModels.downloadAndLoad(version: self.modelVersion)
+        let manager = AsrManager(config: .default)
+        try await manager.initialize(models: models)
+        self.models = models
+        self.asrManager = manager
+        print("Swift FluidAudio: ASR initialized successfully")
     }
 
-    @objc public func transcribe(audioData: Data, completion: @escaping (String?, String?) -> Void) {
-        guard let asrManager = asrManager else {
-            completion(nil, "FluidAudio not initialized")
-            return
-        }
-        
-        Task {
-            do {
-                // Transcription input arrives as 16-bit PCM bytes.
-                let audioArray = pcm16ToFloat(audioData)
+    // MARK: - Transcription
 
-                let result = try await asrManager.transcribe(audioArray)
-                
-                completion(result.text, nil)
-            } catch {
-                completion(nil, error.localizedDescription)
-            }
+    func transcribe(audioData: Data) async throws -> String {
+        guard let asrManager = asrManager else {
+            throw NSError(domain: "FluidAudio", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "FluidAudio not initialized"])
         }
+
+        // Transcription input arrives as 16-bit PCM bytes.
+        let audioArray = pcm16ToFloat(audioData)
+        let result = try await asrManager.transcribe(audioArray)
+        return result.text
     }
 
     // Lazily load the ASR models. Offline diarization can run when no live
@@ -126,6 +97,10 @@ struct DiarizedSegment: Codable {
         manager.initialize(models: models)
         self.diarizer = manager
         return manager
+    }
+
+    func prefetchDiarizer() async throws {
+        _ = try await ensureDiarizerLoaded()
     }
 
     /// Transcribe a whole audio file and attribute each part to a speaker.
@@ -158,9 +133,59 @@ struct DiarizedSegment: Codable {
         return String(data: data, encoding: .utf8) ?? "[]"
     }
 
-    // Assign each ASR token to the diarization segment containing its midpoint
-    // (or the nearest segment when it falls in a gap), then join token text per
-    // segment in time order. No token is dropped.
+    // MARK: - VAD
+
+    func vadCreateState(id: String) async -> Bool {
+        guard let vadManager = vadManager else {
+            print("Swift FluidAudio: VAD not initialized")
+            return false
+        }
+        let state = await vadManager.makeStreamState()
+        vadStates[id] = state
+        return true
+    }
+
+    // Returns the speech probability for this chunk, or nil on error/missing state.
+    func vadProcess(id: String, audioArray: [Float]) async -> Float? {
+        guard let vadManager = vadManager else {
+            print("Swift FluidAudio: VAD manager not initialized")
+            return nil
+        }
+        guard let state = vadStates[id] else {
+            print("Swift FluidAudio: VAD state not found for \(id)")
+            return nil
+        }
+        do {
+            let result = try await vadManager.processStreamingChunk(
+                audioArray,
+                state: state,
+                returnSeconds: true,
+                timeResolution: 2
+            )
+            vadStates[id] = result.state
+            return result.probability
+        } catch {
+            print("Swift FluidAudio: VAD processing error: \(error)")
+            return nil
+        }
+    }
+
+    func removeVadState(id: String) {
+        vadStates.removeValue(forKey: id)
+    }
+
+    // MARK: - Shutdown
+
+    func shutdown() {
+        vadManager = nil
+        asrManager = nil
+        models = nil
+        diarizer = nil
+        vadStates.removeAll()
+    }
+
+    // MARK: - Helpers
+
     private func bucketIntoSpeakerSegments(
         _ diarSegments: [TimedSpeakerSegment],
         timings: [TokenTiming]
@@ -249,58 +274,36 @@ struct DiarizedSegment: Codable {
         let int16Array = data.withUnsafeBytes { buffer in
             Array(buffer.bindMemory(to: Int16.self))
         }
-        
-        // Convert to Float array normalized to [-1.0, 1.0]
         return int16Array.map { Float($0) / Float(Int16.max) }
-    }
-    
-    // Eagerly download/load the diarizer models so the first real diarization
-    // doesn't pay the download cost. Used by the onboarding prefetch.
-    @objc public func prefetchDiarizer(completion: @escaping (Bool, String?) -> Void) {
-        Task {
-            do {
-                _ = try await ensureDiarizerLoaded()
-                completion(true, nil)
-            } catch {
-                completion(false, error.localizedDescription)
-            }
-        }
-    }
-
-    @objc public func shutdown() {
-        vadManager = nil
-        asrManager = nil
-        models = nil
-        diarizer = nil
     }
 }
 
-// C API for Rust FFI
+// MARK: - C API for Rust FFI
+
 @_cdecl("fluid_audio_init")
 public func fluid_audio_init(
     modelPath: UnsafePointer<CChar>?,
     callback: FluidAudioCallback?,
     context: UnsafeMutableRawPointer?
 ) {
-    let bridge = FluidAudioBridge.shared
     let model = modelPath != nil ? String(cString: modelPath!) : nil
-    
+
     print("Swift: Initializing FluidAudio")
-    bridge.initialize(modelPath: model) { success, error in
-        guard let callback = callback else { 
-            print("Swift: No callback provided")
-            return 
-        }
-        
-        if success {
+    Task {
+        do {
+            try await FluidAudioBridge.shared.initialize(modelPath: model)
+            guard let callback = callback else {
+                print("Swift: No callback provided")
+                return
+            }
             print("Swift: FluidAudio initialized successfully, calling Rust callback")
             let successStr = strdup("success")
             callback(successStr, nil, context)
             free(successStr)
-        } else {
-            let errorMsg = error ?? "Unknown error"
-            print("Swift: FluidAudio initialization failed: \(errorMsg)")
-            let errorStr = strdup(errorMsg)
+        } catch {
+            guard let callback = callback else { return }
+            print("Swift: FluidAudio initialization failed: \(error.localizedDescription)")
+            let errorStr = strdup(error.localizedDescription)
             callback(nil, errorStr, context)
             free(errorStr)
         }
@@ -315,18 +318,16 @@ public func fluid_audio_transcribe(
     context: UnsafeMutableRawPointer?
 ) {
     guard let audioData = audioData, let callback = callback else { return }
-    
+
     let data = Data(bytes: audioData, count: dataLen)
-    let bridge = FluidAudioBridge.shared
-    
-    bridge.transcribe(audioData: data) { text, error in
-        if let text = text {
+    Task {
+        do {
+            let text = try await FluidAudioBridge.shared.transcribe(audioData: data)
             let textStr = strdup(text)
             callback(textStr, nil, context)
             free(textStr)
-        } else {
-            let errorMsg = error ?? "Transcription failed"
-            let errorStr = strdup(errorMsg)
+        } catch {
+            let errorStr = strdup(error.localizedDescription)
             callback(nil, errorStr, context)
             free(errorStr)
         }
@@ -342,11 +343,10 @@ public func fluid_audio_diarize_file(
 ) {
     guard let path = path, let callback = callback else { return }
     let filePath = String(cString: path)
-    let bridge = FluidAudioBridge.shared
 
     Task {
         do {
-            let json = try await bridge.diarizeFile(path: filePath, diarize: diarize)
+            let json = try await FluidAudioBridge.shared.diarizeFile(path: filePath, diarize: diarize)
             let jsonStr = strdup(json)
             callback(jsonStr, nil, context)
             free(jsonStr)
@@ -363,15 +363,16 @@ public func fluid_audio_prefetch_diarizer(
     callback: FluidAudioCallback?,
     context: UnsafeMutableRawPointer?
 ) {
-    let bridge = FluidAudioBridge.shared
-    bridge.prefetchDiarizer { success, error in
-        guard let callback = callback else { return }
-        if success {
+    Task {
+        do {
+            try await FluidAudioBridge.shared.prefetchDiarizer()
+            guard let callback = callback else { return }
             let successStr = strdup("success")
             callback(successStr, nil, context)
             free(successStr)
-        } else {
-            let errorStr = strdup(error ?? "Diarizer prefetch failed")
+        } catch {
+            guard let callback = callback else { return }
+            let errorStr = strdup(error.localizedDescription)
             callback(nil, errorStr, context)
             free(errorStr)
         }
@@ -401,46 +402,39 @@ public func fluid_audio_models_present() -> Bool {
 
 @_cdecl("fluid_audio_shutdown")
 public func fluid_audio_shutdown() {
-    FluidAudioBridge.shared.shutdown()
+    // Fire-and-forget: actor isolation guarantees this won't tear down the
+    // managers while an in-flight transcribe/diarize Task still holds them.
+    Task { await FluidAudioBridge.shared.shutdown() }
 }
 
-// MARK: - VAD Functions
+// MARK: - VAD C API
+//
+// These stay synchronous because Rust calls them and expects an immediate
+// result. We bridge async->sync with a DispatchGroup. On timeout the awaiting
+// Task may still be running, but it can only touch state through the actor, so a
+// late write is serialized and safe (no over-release) — it just may be stale.
 
 @_cdecl("fluid_audio_vad_create_state")
 public func fluid_audio_vad_create_state(streamId: UnsafePointer<CChar>?) -> Bool {
     guard let streamId = streamId else { return false }
     let id = String(cString: streamId)
-    
-    let bridge = FluidAudioBridge.shared
-    guard let vadManager = bridge.vadManager else {
-        print("Swift FluidAudio: VAD not initialized")
-        return false
-    }
-    
+
     print("Swift FluidAudio: Creating VAD state for stream: \(id)")
-    
-    // Use DispatchGroup to wait for async state creation
+
     let group = DispatchGroup()
     var success = false
-    
+
     group.enter()
-    Task.detached(priority: .userInitiated) {
-        print("Swift FluidAudio: Task.detached started for: \(id)")
-        let state = await vadManager.makeStreamState()
-        print("Swift FluidAudio: VAD state created, setting for: \(id)")
-        bridge.setVadState(id: id, state: state)
-        success = true
-        print("Swift FluidAudio: VAD state set complete for: \(id)")
+    Task {
+        success = await FluidAudioBridge.shared.vadCreateState(id: id)
         group.leave()
     }
-    
-    // Wait for state creation (with timeout)
-    let result = group.wait(timeout: .now() + 5.0)
-    if result == .timedOut {
+
+    if group.wait(timeout: .now() + 5.0) == .timedOut {
         print("Swift FluidAudio: VAD state creation timeout for \(id)")
         return false
     }
-    
+
     print("Swift FluidAudio: VAD state creation success for: \(id)")
     return success
 }
@@ -456,55 +450,29 @@ public func fluid_audio_vad_process(
         print("Swift FluidAudio: VAD process - invalid parameters")
         return false
     }
-    
+
     let id = String(cString: streamId)
-    let bridge = FluidAudioBridge.shared
-    
-    guard let vadManager = bridge.vadManager else {
-        print("Swift FluidAudio: VAD manager not initialized")
-        return false
-    }
-    
-    guard var vadState = bridge.getVadState(id: id) else {
-        print("Swift FluidAudio: VAD state not found for \(id)")
-        return false
-    }
-    
     let data = Data(bytes: audioData, count: dataLen)
     let audioArray = bytesToFloat32(data)
-    
-    // Use DispatchGroup instead of semaphore to avoid deadlock
+
     let group = DispatchGroup()
     var probability: Float = 0.0
     var success = false
-    
+
     group.enter()
-    Task.detached(priority: .userInitiated) {
-        do {
-            let result = try await vadManager.processStreamingChunk(
-                audioArray,
-                state: vadState,
-                returnSeconds: true,
-                timeResolution: 2
-            )
-            
-            vadState = result.state
-            bridge.setVadState(id: id, state: vadState)
-            probability = result.probability
+    Task {
+        if let p = await FluidAudioBridge.shared.vadProcess(id: id, audioArray: audioArray) {
+            probability = p
             success = true
-        } catch {
-            print("Swift FluidAudio: VAD processing error: \(error)")
         }
         group.leave()
     }
-    
-    // Wait with timeout to prevent infinite blocking
-    let result = group.wait(timeout: .now() + 5.0)
-    if result == .timedOut {
+
+    if group.wait(timeout: .now() + 5.0) == .timedOut {
         print("Swift FluidAudio: VAD processing timeout for \(id)")
         return false
     }
-    
+
     outProbability.pointee = probability
     return success
 }
@@ -513,5 +481,5 @@ public func fluid_audio_vad_process(
 public func fluid_audio_vad_destroy_state(streamId: UnsafePointer<CChar>?) {
     guard let streamId = streamId else { return }
     let id = String(cString: streamId)
-    FluidAudioBridge.shared.removeVadState(id: id)
+    Task { await FluidAudioBridge.shared.removeVadState(id: id) }
 }
