@@ -97,6 +97,13 @@ export const HomePage = () => {
     setIsSummarizing(true);
     setSummaryError(undefined);
     try {
+      // The backend summarizes from data.json on disk, but the live transcript
+      // only lives in the store until something persists it. Flush it first so
+      // summarize never reads a stale/empty file while the UI shows a transcript.
+      const current = getCurrentMeeting();
+      if (current) {
+        await saveMeeting(current);
+      }
       const summary = await summarizeMeeting(currentMeetingId);
       setSummary(currentMeetingId, summary);
       const meeting = getCurrentMeeting();
