@@ -38,9 +38,36 @@ actor FluidAudioBridge {
     // queue is needed anymore.
     private var vadStates: [String: VadStreamState] = [:]
 
+    // Tail of the serial inference chain. Actor isolation makes the actor's
+    // *property* access atomic, but an `await` inside an actor method suspends
+    // the actor and lets another Task reenter (actor reentrancy). That let two
+    // `asrManager.transcribe` awaits — mic + speaker — run CoreML predictions on
+    // the same shared model concurrently, racing ARC's non-atomic retain/release
+    // and crashing in objc_release during autorelease pool drain. This chain
+    // forces every CoreML inference to wait for the previous one to finish.
+    private var inferenceTail: Task<Void, Never> = Task {}
+
     static let shared = FluidAudioBridge()
 
     private init() {}
+
+    /// Run `work` only after every previously-enqueued inference has finished,
+    /// so reentrant `await` points can never overlap two predictions on the
+    /// shared CoreML model. Reading `inferenceTail` and storing the new tail
+    /// happen with no `await` between them, so the actor serializes the link
+    /// itself — callers form a strict FIFO chain.
+    private func runSerialized<T>(
+        _ work: @escaping () async throws -> T
+    ) async throws -> T {
+        let previous = inferenceTail
+        let task = Task { () -> Result<T, Error> in
+            await previous.value
+            do { return .success(try await work()) }
+            catch { return .failure(error) }
+        }
+        inferenceTail = Task { _ = await task.value }
+        return try await task.value.get()
+    }
 
     // MARK: - Initialization
 
@@ -74,7 +101,7 @@ actor FluidAudioBridge {
 
         // Transcription input arrives as 16-bit PCM bytes.
         let audioArray = pcm16ToFloat(audioData)
-        let result = try await asrManager.transcribe(audioArray)
+        let result = try await runSerialized { try await asrManager.transcribe(audioArray) }
         return result.text
     }
 
@@ -117,13 +144,15 @@ actor FluidAudioBridge {
         }
 
         let samples = try AudioConverter().resampleAudioFile(path: path)
-        let asr = try await asrManager.transcribe(samples)
+        let asr = try await runSerialized { try await asrManager.transcribe(samples) }
         let timings = asr.tokenTimings ?? []
 
         let segments: [DiarizedSegment]
         if diarize {
             let diarizer = try await ensureDiarizerLoaded()
-            let result = try diarizer.performCompleteDiarization(samples, sampleRate: 16000)
+            let result = try await runSerialized {
+                try diarizer.performCompleteDiarization(samples, sampleRate: 16000)
+            }
             segments = bucketIntoSpeakerSegments(result.segments, timings: timings)
         } else {
             segments = splitBySilence(timings)
