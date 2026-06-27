@@ -11,6 +11,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { Meeting } from "@/types/meeting";
 import { useBoundStore } from "@/store";
+import { Brand, CaptureButton, IconButton } from "@/design-system";
 
 interface SidebarProps {
   meetings: Meeting[];
@@ -41,9 +42,10 @@ export const Sidebar = ({
   return (
     <div
       className={cn(
-        "flex flex-col gap-2.5 h-screen px-2.5 py-5",
+        "flex flex-col gap-2.5 h-screen px-2.5 py-5 border-r border-[var(--ds-border)]",
         isSidebarCollapsed ? "w-16" : "w-full max-w-[411px]",
       )}
+      style={{ background: "#fcfcfb" }}
     >
       {/* Header */}
       <div
@@ -52,63 +54,38 @@ export const Sidebar = ({
           isSidebarCollapsed ? "justify-center" : "justify-between",
         )}
       >
-        {!isSidebarCollapsed && (
-          <h1 className="text-xl font-bold text-custom-text-highlight">
-            Meeting Noter
-          </h1>
-        )}
-        <button
+        {!isSidebarCollapsed && <Brand />}
+        <IconButton
+          icon={isSidebarCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+          label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
           onClick={toggleSidebar}
-          className={cn(
-            "p-2 hover:bg-gray-100 rounded-lg",
-            !isSidebarCollapsed && "-mr-2",
-          )}
-          title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {isSidebarCollapsed ? (
-            <ChevronRight className="w-5 h-5" />
-          ) : (
-            <ChevronLeft className="w-5 h-5" />
-          )}
-        </button>
+        />
       </div>
 
-      {/* Start Capture Button */}
-      <button
-        onClick={onToggleCapture}
-        disabled={isCaptureBusy}
-        className={cn(
-          "flex flex-col gap-1 items-center justify-center h-[77px] p-4 border-2 border-dashed rounded-[10px]",
-          isCapturing
-            ? "bg-custom-red text-white border-custom-red"
-            : "border-custom-red text-custom-red hover:bg-custom-red/5",
-          isCaptureBusy && "opacity-50 cursor-not-allowed",
-        )}
-        title={
-          isSidebarCollapsed
-            ? isCapturing
-              ? "Stop Capture"
-              : "Start Capture"
-            : undefined
-        }
-      >
-        {isCapturing ? (
-          <Square className="w-6 h-6" />
-        ) : (
-          <Mic className="w-6 h-6" />
-        )}
-        {!isSidebarCollapsed && (
-          <span className="text-sm font-medium">
-            {isCapturing ? "Stop Capture" : "Start Capture"}
-          </span>
-        )}
-      </button>
+      {/* Start Capture */}
+      {isSidebarCollapsed ? (
+        <button
+          onClick={onToggleCapture}
+          disabled={isCaptureBusy}
+          title={isCapturing ? "Stop Capture" : "Start Capture"}
+          className={cn("ds-capture", isCapturing && "ds-capture--active")}
+          style={{ height: 52 }}
+        >
+          {isCapturing ? <Square className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+        </button>
+      ) : (
+        <CaptureButton
+          capturing={isCapturing}
+          disabled={isCaptureBusy}
+          onClick={onToggleCapture}
+        />
+      )}
 
       {/* Meetings List */}
-      <div className="flex flex-col gap-2.5 overflow-y-auto px-2">
+      <div className="flex flex-col gap-1 overflow-y-auto px-1">
         {!isSidebarCollapsed && meetings.length === 0 ? (
           <div className="text-center text-custom-text-secondary text-sm p-4">
-            No meetings yet. Click + to create a new meeting.
+            No meetings yet. Press Start Capture to create one.
           </div>
         ) : (
           meetings.map((meeting) => (
@@ -174,7 +151,7 @@ const MeetingCard = ({
     const day = date.getDate().toString().padStart(2, "0");
     const month = (date.getMonth() + 1).toString().padStart(2, "0");
     const year = date.getFullYear().toString().slice(-2);
-    return `${hours}:${minutes} ${day}/${month}/${year}`;
+    return `${hours}:${minutes} · ${day}/${month}/${year}`;
   };
 
   const handleDelete = (e: React.MouseEvent) => {
@@ -204,12 +181,9 @@ const MeetingCard = ({
   return (
     <div
       onClick={onClick}
-      className={cn(
-        "flex flex-col gap-2.5 items-start justify-center min-h-[79px] p-2.5 rounded-[10px] w-full text-left relative group cursor-pointer",
-        isActive ? "bg-custom-bg-primary" : "hover:bg-custom-bg-secondary",
-      )}
+      className={cn("ds-meeting group", isActive && "ds-meeting--active")}
     >
-      <div className="flex items-center justify-between w-full">
+      <div className="ds-meeting__row">
         {isEditing ? (
           <input
             autoFocus
@@ -221,21 +195,17 @@ const MeetingCard = ({
               if (e.key === "Enter") commitEditing();
               else if (e.key === "Escape") cancelEditing();
             }}
-            className="text-base text-custom-text-primary font-medium bg-transparent border-b border-custom-text-secondary outline-none w-full"
+            className="text-base font-medium bg-transparent border-b outline-none w-full"
+            style={{ borderColor: "var(--ds-border-2)", color: "var(--ds-text)" }}
           />
         ) : isTitling ? (
           <div className="flex items-center gap-1.5 min-w-0 text-custom-text-secondary">
             <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-            <span className="text-base font-medium italic truncate">
-              Generating title…
-            </span>
+            <span className="ds-meeting__title italic">Generating title…</span>
           </div>
         ) : (
           <div className="flex items-center gap-1.5 min-w-0">
-            <p
-              onDoubleClick={startEditing}
-              className="text-base text-custom-text-primary font-medium truncate"
-            >
+            <p onDoubleClick={startEditing} className="ds-meeting__title">
               {meeting.title}
             </p>
             <button
@@ -250,14 +220,12 @@ const MeetingCard = ({
         {meeting.status === "recording" && (
           <span className="flex items-center gap-1 text-xs text-custom-red">
             <span className="h-2 w-2 rounded-full bg-custom-red animate-pulse" />
-            Recording
+            Rec
           </span>
         )}
       </div>
-      <div className="flex items-center justify-between w-full">
-        <p className="text-sm text-custom-text-secondary">
-          {formatDate(meeting.createdAt)}
-        </p>
+      <div className="ds-meeting__row">
+        <p className="ds-meeting__meta">{formatDate(meeting.createdAt)}</p>
         {meeting.status !== "recording" && (
           <button
             onClick={handleDelete}

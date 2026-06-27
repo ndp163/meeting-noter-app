@@ -43,18 +43,21 @@
 }
 
 @theme {
-  --color-custom-text-primary: #404a4c;
-  --color-custom-text-secondary: #404a4cb3;
-  --color-custom-text-highlight: #2a4b8b;
-  --color-custom-red: #c50b0e;
-  --color-custom-bg-primary: #e2e2e2;
-  --color-custom-bg-secondary: #f3f3f3;
+  /* Vintage (Sepia / Paper) — mirrors the design system's ds-theme-vintage,
+   * applied to the app's legacy custom-* tokens so any UI not yet rewired to
+   * DS components still reads on-brand. */
+  --color-custom-text-primary: #3a3128;
+  --color-custom-text-secondary: #3a3128b3;
+  --color-custom-text-highlight: #b5552f;
+  --color-custom-red: #a23b2e;
+  --color-custom-bg-primary: #e3d8c6;
+  --color-custom-bg-secondary: #efe5d6;
 }
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --background: #f4ece0;
+  --foreground: #3a3128;
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);

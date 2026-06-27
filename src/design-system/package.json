@@ -1,0 +1,9 @@
+{
+  "name": "meeting-noter-ds",
+  "version": "0.9.1",
+  "private": true,
+  "type": "module",
+  "description": "Meeting Noter design system — presentational React components (modern minimal).",
+  "module": "./index.ts",
+  "types": "./dist-types/index.d.ts"
+}

@@ -1,10 +1,9 @@
 import { Ref, useRef } from "react";
-import { Tab } from "@/features/home/tab";
+import { Tabs, StatusDot } from "@/design-system";
 import { Message } from "@/features/home/message";
 import { AudioPlayer, type AudioPlayerHandle } from "@/features/home/audio-player";
 import { DiarizationView } from "@/features/home/diarization-view";
 import { SummaryView } from "@/features/home/summary-view";
-import { cn } from "@/lib/utils";
 import type { TranscriptMessage, DiarizedSegment } from "@/types/meeting";
 
 export type MainTab = "transcript" | "summary" | "diarization";
@@ -69,44 +68,34 @@ export const MainContent = ({
     <div className="flex flex-col gap-2.5 flex-1 p-5 overflow-hidden">
       {/* Header with Tabs */}
       <div className="flex gap-2.5 h-[78px] items-center">
-        <Tab
-          label="Transcript"
-          isActive={activeTab === "transcript"}
-          onClick={() => setActiveTab("transcript")}
+        <Tabs
+          items={[
+            { id: "transcript", label: "Transcript" },
+            { id: "summary", label: "Summary" },
+            { id: "diarization", label: "Diarization" },
+          ]}
+          value={activeTab}
+          onChange={(id) => setActiveTab(id as MainTab)}
         />
-        <Tab
-          label="Summary"
-          isActive={activeTab === "summary"}
-          onClick={() => setActiveTab("summary")}
-        />
-        <Tab
-          label="Diarization"
-          isActive={activeTab === "diarization"}
-          onClick={() => setActiveTab("diarization")}
-        />
-        <div className="ml-auto flex items-center gap-2 text-sm text-custom-text-secondary">
-          <span
-            className={cn(
-              "h-2 w-2 rounded-full",
+        <div className="ml-auto">
+          <StatusDot
+            tone={isCapturing ? "rec" : "idle"}
+            pulse={isPreparingModel || isCapturing}
+            label={
               isPreparingModel
-                ? "bg-custom-text-secondary animate-pulse"
+                ? "Preparing model…"
                 : isCapturing
-                  ? "bg-custom-red animate-pulse"
-                  : "bg-custom-bg-secondary",
-            )}
+                  ? "Listening"
+                  : "Idle"
+            }
           />
-          {isPreparingModel
-            ? "Preparing model…"
-            : isCapturing
-              ? "Listening"
-              : "Idle"}
         </div>
       </div>
 
       {/* Content Area */}
       <div
         ref={contentAreaRef}
-        className="flex-1 border border-custom-bg-primary rounded-[20px] p-5 overflow-y-auto"
+        className="ds-card flex-1 p-5 overflow-y-auto"
       >
         <div className="flex flex-col gap-5">
           {activeTab === "transcript" ? (

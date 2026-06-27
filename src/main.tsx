@@ -5,6 +5,7 @@ import { router } from "./routes";
 import { AlertWindow } from "./features/alert/alert-window";
 import { UpdateBanner } from "./features/update/update-banner";
 import "./styles/App.css";
+import "@/design-system/styles.css";
 
 const isAlertWindow = getCurrentWindow().label === "alert";
 
@@ -19,9 +20,12 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   isAlertWindow ? (
     <AlertWindow />
   ) : (
-    <>
+    <div
+      className="ds-root ds-theme-vintage"
+      style={{ minHeight: "100vh", background: "var(--ds-bg)" }}
+    >
       <UpdateBanner />
       <RouterProvider router={router} />
-    </>
+    </div>
   ),
 );
