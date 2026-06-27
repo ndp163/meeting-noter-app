@@ -18,6 +18,9 @@ export interface DiarizedSegment {
   text: string;
 }
 
+/** ASR language a meeting is transcribed in. */
+export type MeetingLanguage = "en" | "ja";
+
 export interface Meeting {
   id: string;
   title: string;
@@ -25,6 +28,7 @@ export interface Meeting {
   updatedAt: number;
   duration: number;
   status: "recording" | "completed";
+  language?: MeetingLanguage;
   audioPath?: string;
   transcript: TranscriptMessage[];
   diarization?: DiarizedSegment[];

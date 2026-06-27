@@ -8,8 +8,9 @@ pub async fn start_transcription(
     app_handle: AppHandle,
     state: State<'_, RecorderState>,
     meeting_id: String,
+    language: Option<String>,
 ) -> Result<(), String> {
-    session::start(app_handle, &state, meeting_id).await
+    session::start(app_handle, &state, meeting_id, language).await
 }
 
 #[tauri::command]
