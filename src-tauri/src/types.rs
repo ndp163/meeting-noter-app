@@ -2,6 +2,25 @@ use serde::{Deserialize, Serialize};
 
 // Shared types used across the codebase
 
+/// A transcription language the app supports. Serializes to the `"en"`/`"ja"`
+/// codes the frontend `MeetingLanguage` uses and the ASR bridge expects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MeetingLanguage {
+    En,
+    Ja,
+}
+
+impl MeetingLanguage {
+    /// Language code passed to the ASR bridge (`"en"` / `"ja"`).
+    pub fn as_code(self) -> &'static str {
+        match self {
+            MeetingLanguage::En => "en",
+            MeetingLanguage::Ja => "ja",
+        }
+    }
+}
+
 /// Audio source identifier for the dual-stream architecture
 #[derive(Debug, Clone)]
 pub enum AudioSource {

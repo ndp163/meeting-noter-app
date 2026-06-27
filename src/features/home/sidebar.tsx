@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Mic,
   Square,
@@ -7,11 +7,15 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
+  Settings,
+  Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Meeting } from "@/types/meeting";
 import { useBoundStore } from "@/store";
 import { Brand, CaptureButton, IconButton, PillToggle } from "@/design-system";
+import { SettingsModal } from "@/features/settings/settings-modal";
+import { languageInfo } from "@/lib/languages";
 
 interface SidebarProps {
   meetings: Meeting[];
@@ -40,6 +44,28 @@ export const Sidebar = ({
   const toggleSidebar = useBoundStore.use.toggleSidebar();
   const captureLanguage = useBoundStore.use.captureLanguage();
   const setCaptureLanguage = useBoundStore.use.setCaptureLanguage();
+  const installedLanguages = useBoundStore.use.installedLanguages();
+  const refreshInstalledLanguages =
+    useBoundStore.use.refreshInstalledLanguages();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    void refreshInstalledLanguages();
+  }, [refreshInstalledLanguages]);
+
+  // `null` while loading — treat as installed so we don't flash a prompt.
+  const langReady =
+    installedLanguages === null || installedLanguages.includes(captureLanguage);
+
+  // Block capture when the selected language isn't installed: open the Models
+  // panel to download it instead of silently failing.
+  const handleToggleCapture = () => {
+    if (!isCapturing && !langReady) {
+      setSettingsOpen(true);
+      return;
+    }
+    onToggleCapture();
+  };
 
   return (
     <div
@@ -57,17 +83,26 @@ export const Sidebar = ({
         )}
       >
         {!isSidebarCollapsed && <Brand />}
-        <IconButton
-          icon={isSidebarCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
-          label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          onClick={toggleSidebar}
-        />
+        <div className="flex items-center gap-1">
+          {!isSidebarCollapsed && (
+            <IconButton
+              icon={<Settings className="w-5 h-5" />}
+              label="Languages & models"
+              onClick={() => setSettingsOpen(true)}
+            />
+          )}
+          <IconButton
+            icon={isSidebarCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+            label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            onClick={toggleSidebar}
+          />
+        </div>
       </div>
 
       {/* Start Capture */}
       {isSidebarCollapsed ? (
         <button
-          onClick={onToggleCapture}
+          onClick={handleToggleCapture}
           disabled={isCaptureBusy}
           title={isCapturing ? "Stop Capture" : "Start Capture"}
           className={cn("ds-capture", isCapturing && "ds-capture--active")}
@@ -79,21 +114,32 @@ export const Sidebar = ({
         <CaptureButton
           capturing={isCapturing}
           disabled={isCaptureBusy}
-          onClick={onToggleCapture}
+          onClick={handleToggleCapture}
         />
       )}
 
       {/* Transcription language — locked while a recording is in progress. */}
       {!isSidebarCollapsed && (
-        <PillToggle
-          className={cn(isCapturing && "pointer-events-none opacity-50")}
-          value={captureLanguage}
-          onChange={(id) => setCaptureLanguage(id as "en" | "ja")}
-          options={[
-            { id: "en", label: "English" },
-            { id: "ja", label: "日本語" },
-          ]}
-        />
+        <>
+          <PillToggle
+            className={cn(isCapturing && "pointer-events-none opacity-50")}
+            value={captureLanguage}
+            onChange={(id) => setCaptureLanguage(id as "en" | "ja")}
+            options={[
+              { id: "en", label: "English" },
+              { id: "ja", label: "日本語" },
+            ]}
+          />
+          {!langReady && !isCapturing && (
+            <button
+              onClick={() => setSettingsOpen(true)}
+              className="flex items-center gap-1.5 self-start text-xs text-[var(--ds-accent)] hover:underline px-1"
+            >
+              <Download className="w-3.5 h-3.5" />
+              {languageInfo(captureLanguage).label} model not installed — download
+            </button>
+          )}
+        </>
       )}
 
       {/* Meetings List */}
@@ -117,6 +163,8 @@ export const Sidebar = ({
           ))
         )}
       </div>
+
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 };
