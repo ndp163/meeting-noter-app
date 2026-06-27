@@ -12,6 +12,15 @@ dist
 dist-ssr
 *.local
 
+# Storybook / design-sync build output
+storybook-static
+ds-bundle
+src/design-system/dist-types
+
+# design-sync tooling scratch (caches, vendored tool deps)
+.design-sync/
+.ds-sync/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

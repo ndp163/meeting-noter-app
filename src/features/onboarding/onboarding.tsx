@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { Check, Loader2 } from "lucide-react";
 import {
   onSetupStage,
   prefetchModels,
   type SetupStage,
 } from "@/services/setup";
+import { SetupCard, Step, Button } from "@/design-system";
 
 // Ordered download steps shown as a checklist. Sizes are approximate on-disk
 // totals; transcription is by far the largest, which is why a single percent
@@ -79,78 +79,42 @@ export const Onboarding = ({ onDone }: { onDone: () => void }) => {
   const current = stepIndex(stage);
 
   return (
-    <div className="flex h-screen flex-col items-center justify-center gap-4 px-8 text-center">
-      <h1 className="text-lg font-medium text-custom-text-primary">
-        Setting up Noter
-      </h1>
-
-      {error ? (
-        <div className="flex flex-col items-center gap-3">
-          <p className="max-w-sm text-sm text-custom-red">
-            Couldn’t download the speech models. Check your connection and try
-            again.
-          </p>
-          <p className="max-w-sm text-xs text-custom-text-secondary">{error}</p>
-          <button
-            onClick={() => setAttempt((n) => n + 1)}
-            className="rounded-full border border-custom-text-primary px-4 py-1.5 text-sm text-custom-text-primary hover:bg-custom-bg-secondary"
-          >
-            Try again
-          </button>
-        </div>
-      ) : (
-        <>
-          <p className="text-sm text-custom-text-secondary">
-            {current < STEPS.length
+    <div className="ds-root ds-theme-vintage flex h-screen flex-col items-center justify-center px-8" style={{ background: "var(--ds-bg)" }}>
+      <SetupCard
+        title="Setting up Noter"
+        subtitle={
+          error
+            ? "Couldn’t download the speech models."
+            : current < STEPS.length
               ? `Step ${current + 1} of ${STEPS.length} · Downloading models…`
-              : "Finishing up…"}
-          </p>
-
-          <ul className="flex flex-col gap-2 text-left">
-            {STEPS.map((s, i) => {
-              const done = i < current;
-              const active = i === current;
-              return (
-                <li key={s.stage} className="flex items-center gap-2.5 text-sm">
-                  <span className="flex h-5 w-5 items-center justify-center">
-                    {done ? (
-                      <Check className="h-4 w-4 text-custom-text-highlight" />
-                    ) : active ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-custom-text-secondary" />
-                    ) : (
-                      <span className="h-2 w-2 rounded-full bg-custom-text-secondary/30" />
-                    )}
-                  </span>
-                  <span
-                    className={
-                      done || active
-                        ? "text-custom-text-primary"
-                        : "text-custom-text-secondary/50"
-                    }
-                  >
-                    {s.label}
-                  </span>
-                  <span className="text-xs text-custom-text-secondary/60 tabular-nums">
-                    {s.size}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-
-          <p className="text-xs text-custom-text-secondary tabular-nums">
-            {formatElapsed(elapsed)} · ~450 MB · one-time download, usually 1–2
-            min
-          </p>
-
-          {elapsed > 30 && (
-            <p className="max-w-xs text-xs text-custom-text-secondary/70">
-              Still going — these are large files and can take a minute on
-              slower connections. Hang tight.
+              : "Finishing up…"
+        }
+        footer={
+          error ? (
+            <div className="flex flex-col items-center gap-3" style={{ marginTop: 22 }}>
+              <p className="text-xs" style={{ color: "var(--ds-text-3)" }}>{error}</p>
+              <Button variant="primary" onClick={() => setAttempt((n) => n + 1)}>
+                Try again
+              </Button>
+            </div>
+          ) : (
+            <p className="text-xs tabular-nums" style={{ marginTop: 22, color: "var(--ds-text-3)" }}>
+              {formatElapsed(elapsed)} · ~450 MB · one-time download, usually 1–2 min
+              {elapsed > 30 && " · large files, hang tight"}
             </p>
-          )}
-        </>
-      )}
+          )
+        }
+      >
+        {STEPS.map((s, i) => (
+          <Step
+            key={s.stage}
+            index={i + 1}
+            label={s.label}
+            state={error ? "todo" : i < current ? "done" : i === current ? "active" : "todo"}
+            hint={s.size}
+          />
+        ))}
+      </SetupCard>
     </div>
   );
 };

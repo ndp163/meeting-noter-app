@@ -533,7 +533,7 @@ export const HomePage = () => {
   }, [isCapturing, isCaptureBusy]);
 
   return (
-    <div className="relative flex h-screen bg-white">
+    <div className="relative flex h-screen ds-root ds-theme-vintage bg-[var(--ds-bg)]">
       {/* Sidebar */}
       <Sidebar
         meetings={meetings}
