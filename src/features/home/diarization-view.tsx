@@ -34,7 +34,7 @@ export const DiarizationView = ({
 
   if (isLoading) {
     return (
-      <div className="text-custom-text-secondary text-sm">
+      <div className="text-[var(--ds-text-2)] text-sm">
         Transcribing and identifying speakers…
       </div>
     );
@@ -43,7 +43,7 @@ export const DiarizationView = ({
   if (error) {
     return (
       <div className="flex flex-col gap-3 items-start">
-        <p className="text-sm text-custom-red">{error}</p>
+        <p className="text-sm text-[var(--ds-rec)]">{error}</p>
         <Button variant="ghost" pill onClick={onRun}>
           Try again
         </Button>
@@ -54,14 +54,14 @@ export const DiarizationView = ({
   if (!segments || segments.length === 0) {
     if (!canRun) {
       return (
-        <div className="text-custom-text-secondary text-sm">
+        <div className="text-[var(--ds-text-2)] text-sm">
           Diarization is available after a recording finishes.
         </div>
       );
     }
     return (
       <div className="flex flex-col gap-3 items-start">
-        <p className="text-sm text-custom-text-secondary">
+        <p className="text-sm text-[var(--ds-text-2)]">
           Identify who spoke when. Transcribes the whole recording and groups it
           by speaker. You can rename each speaker afterwards.
         </p>
