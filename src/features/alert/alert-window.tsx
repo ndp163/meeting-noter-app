@@ -33,21 +33,21 @@ export const AlertWindow = () => {
   }, []);
 
   return (
-    <div className="flex h-screen w-screen items-center gap-3 rounded-[14px] border border-custom-bg-primary bg-white px-4 py-2 shadow-lg">
-      <span className="h-2 w-2 shrink-0 rounded-full bg-custom-red animate-pulse" />
-      <span className="flex-1 truncate text-sm text-custom-text-primary">
+    <div className="flex h-screen w-screen items-center gap-3 rounded-[var(--ds-radius)] border border-[var(--ds-border)] bg-[var(--ds-surface)] px-4 py-2 shadow-[var(--ds-shadow-lg)]">
+      <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--ds-rec)] animate-pulse" />
+      <span className="flex-1 truncate text-sm text-[var(--ds-text)]">
         {appName} is using the microphone
       </span>
       <button
         onClick={() => void invoke("start_recording_from_alert")}
-        className="shrink-0 rounded-full bg-custom-red px-3 py-1 text-sm text-white cursor-pointer"
+        className="shrink-0 rounded-full bg-[var(--ds-rec)] px-3 py-1 text-sm text-[var(--ds-on-accent)] cursor-pointer"
       >
         Start recording
       </button>
       <button
         onClick={() => void invoke("dismiss_alert")}
         aria-label="Dismiss"
-        className="shrink-0 text-custom-text-secondary cursor-pointer"
+        className="shrink-0 text-[var(--ds-text-2)] cursor-pointer"
       >
         ✕
       </button>

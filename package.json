@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "lint:styles": "node scripts/check-styles.mjs",
+    "build": "tsc && node scripts/check-styles.mjs && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "storybook": "storybook dev -p 6006",
