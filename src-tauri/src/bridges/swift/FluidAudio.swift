@@ -3,6 +3,8 @@ import FluidAudio
 
 // C callback type for Rust FFI
 public typealias FluidAudioCallback = @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafeMutableRawPointer?) -> Void
+// C callback reporting download progress as a fraction 0.0–1.0.
+public typealias FluidProgressCallback = @convention(c) (Double, UnsafeMutableRawPointer?) -> Void
 
 // Reinterprets raw bytes as little-endian Float32 samples (used by VAD).
 func bytesToFloat32(_ data: Data) -> [Float] {
@@ -432,18 +434,29 @@ public func fluid_audio_prefetch_diarizer(
     }
 }
 
-// Returns true only when every required ASR and diarizer model file is already
-// cached on disk, so onboarding can skip the download step entirely. Uses the
-// same .v2 ASR version the bridge initializes with.
-@_cdecl("fluid_audio_models_present")
-public func fluid_audio_models_present() -> Bool {
-    let fm = FileManager.default
-    let asrDir = AsrModels.defaultCacheDirectory(for: .v2)
-    for name in AsrModels.requiredModelNames {
-        if !fm.fileExists(atPath: asrDir.appendingPathComponent(name).path) {
-            return false
-        }
+// Maps a language code to its ASR model version for the C API (mirrors the
+// bridge actor's private mapping). Japanese uses the dedicated 600M tdtJa
+// Parakeet model; everything else uses the English-only v2 model.
+func asrVersion(forLanguage language: String?) -> AsrModelVersion {
+    switch language?.lowercased() {
+    case "ja", "jp", "ja-jp": return .tdtJa
+    default: return .v2
     }
+}
+
+// True only when the ASR model for `language` AND the shared diarizer are fully
+// cached on disk — i.e. that language is ready to transcribe offline. Uses
+// FluidAudio's version-aware `modelsExist` because per-version file names differ
+// (e.g. tdtJa ships Decoderv2/Jointerv2, not the generic Decoder/JointDecision).
+@_cdecl("fluid_audio_model_installed")
+public func fluid_audio_model_installed(language: UnsafePointer<CChar>?) -> Bool {
+    let lang = language != nil ? String(cString: language!) : nil
+    let version = asrVersion(forLanguage: lang)
+    let asrDir = AsrModels.defaultCacheDirectory(for: version)
+    guard AsrModels.modelsExist(at: asrDir, version: version) else {
+        return false
+    }
+    let fm = FileManager.default
     let diarDir = DiarizerModels.defaultModelsDirectory()
     for name in DiarizerModels.requiredModelNames {
         if !fm.fileExists(atPath: diarDir.appendingPathComponent(name).path) {
@@ -451,6 +464,76 @@ public func fluid_audio_models_present() -> Bool {
         }
     }
     return true
+}
+
+// Wraps the C progress callback + opaque context as one Sendable value so the
+// @Sendable download progress closures can capture it. FFI pointers carry no
+// Swift concurrency guarantees; the Rust caller owns their lifetime, so the
+// unchecked conformance is sound here.
+private struct ProgressSink: @unchecked Sendable {
+    let callback: FluidProgressCallback?
+    let context: UnsafeMutableRawPointer?
+    func report(_ fraction: Double) { callback?(fraction, context) }
+}
+
+// Download the ASR model for `language` plus the shared diarizer (only if
+// missing), reporting real byte-weighted progress 0.0–1.0. FluidAudio downloads
+// each file to a temp path and moves it into the cache dir only on completion,
+// so polling dir size stalls then jumps — its `progressHandler` is the only
+// honest source. ASR is the bulk → 0.0–0.9; diarizer → 0.9–1.0 (instant when
+// already present from another language).
+@_cdecl("fluid_audio_download_language")
+public func fluid_audio_download_language(
+    language: UnsafePointer<CChar>?,
+    progress: FluidProgressCallback?,
+    callback: FluidAudioCallback?,
+    context: UnsafeMutableRawPointer?
+) {
+    let lang = language != nil ? String(cString: language!) : nil
+    let version = asrVersion(forLanguage: lang)
+    let sink = ProgressSink(callback: progress, context: context)
+    Task {
+        do {
+            // Downloads and compiles the ASR models into the on-disk cache so the
+            // first real transcription is fast. fractionCompleted is reported
+            // coarsely (FluidAudio's async download exposes no per-byte
+            // progress for the large weight files), so the UI shows an
+            // indeterminate indicator rather than a misleading percentage.
+            _ = try await AsrModels.download(
+                version: version,
+                progressHandler: { p in sink.report(p.fractionCompleted * 0.9) }
+            )
+            _ = try await DiarizerModels.downloadIfNeeded(
+                progressHandler: { p in sink.report(0.9 + p.fractionCompleted * 0.1) }
+            )
+            sink.report(1.0)
+            let ok = strdup("success")
+            callback?(ok, nil, context)
+            free(ok)
+        } catch {
+            let err = strdup(error.localizedDescription)
+            callback?(nil, err, context)
+            free(err)
+        }
+    }
+}
+
+// Remove the ASR model cache for `language` to reclaim disk. The shared diarizer
+// (~13 MB) is left in place — it's tiny and used by every language. Returns true
+// on success, including when nothing was cached. EN (v2) and JP (tdtJa) live in
+// separate per-repo dirs, so deleting one never touches the other.
+@_cdecl("fluid_audio_delete_language")
+public func fluid_audio_delete_language(language: UnsafePointer<CChar>?) -> Bool {
+    let lang = language != nil ? String(cString: language!) : nil
+    let fm = FileManager.default
+    let asrDir = AsrModels.defaultCacheDirectory(for: asrVersion(forLanguage: lang))
+    guard fm.fileExists(atPath: asrDir.path) else { return true }
+    do {
+        try fm.removeItem(at: asrDir)
+        return true
+    } catch {
+        return false
+    }
 }
 
 @_cdecl("fluid_audio_shutdown")

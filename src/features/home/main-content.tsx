@@ -1,4 +1,5 @@
 import { Ref, useRef } from "react";
+import { Loader2 } from "lucide-react";
 import { Tabs, StatusDot } from "@/design-system";
 import { Message } from "@/features/home/message";
 import { AudioPlayer, type AudioPlayerHandle } from "@/features/home/audio-player";
@@ -118,15 +119,34 @@ export const MainContent = ({
                 {/* Invisible element to scroll to */}
                 <div ref={messagesEndRef} />
               </>
+            ) : isPreparingModel ? (
+              <div className="flex flex-col items-center justify-center gap-4 py-16 text-center">
+                <div className="relative flex items-center justify-center">
+                  <span className="absolute inline-flex h-14 w-14 rounded-full bg-[var(--ds-accent)] opacity-20 animate-ping" />
+                  <span className="relative inline-flex h-14 w-14 items-center justify-center rounded-full bg-[var(--ds-surface-2)]">
+                    <Loader2
+                      className="h-7 w-7 animate-spin text-[var(--ds-accent)]"
+                      strokeWidth={2.5}
+                    />
+                  </span>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <p className="text-base font-medium text-[var(--ds-text)]">
+                    Preparing the speech model…
+                  </p>
+                  <p className="text-sm text-[var(--ds-text-2)]">
+                    This only takes a moment. We&apos;ll start capturing as soon
+                    as it&apos;s ready.
+                  </p>
+                </div>
+              </div>
             ) : (
               <div className="text-[var(--ds-text-2)] text-sm">
-                {isPreparingModel
-                  ? "Preparing the speech model, this only takes a moment…"
-                  : isCapturing
-                    ? "Listening for speech..."
-                    : currentMeetingId
-                      ? "No transcript yet. Press Start Capture to begin recording."
-                      : "Create a new meeting or select an existing one to get started."}
+                {isCapturing
+                  ? "Listening for speech..."
+                  : currentMeetingId
+                    ? "No transcript yet. Press Start Capture to begin recording."
+                    : "Create a new meeting or select an existing one to get started."}
               </div>
             )
           ) : activeTab === "diarization" ? (

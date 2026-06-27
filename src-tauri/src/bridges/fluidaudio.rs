@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 type FluidAudioCallback = unsafe extern "C" fn(*const c_char, *const c_char, *mut c_void);
+type FluidProgressCallback = unsafe extern "C" fn(f64, *mut c_void);
 
 /// Thread-safe counter for tracking callback context allocations (for debugging)
 static CALLBACK_CONTEXT_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -94,7 +95,14 @@ extern "C" {
     );
 
     fn fluid_audio_prefetch_diarizer(callback: FluidAudioCallback, context: *mut c_void);
-    fn fluid_audio_models_present() -> bool;
+    fn fluid_audio_model_installed(language: *const c_char) -> bool;
+    fn fluid_audio_download_language(
+        language: *const c_char,
+        progress: FluidProgressCallback,
+        callback: FluidAudioCallback,
+        context: *mut c_void,
+    );
+    fn fluid_audio_delete_language(language: *const c_char) -> bool;
 
     // VAD functions
     fn fluid_audio_vad_create_state(stream_id: *const c_char) -> bool;
@@ -174,10 +182,99 @@ impl FluidAudio {
         Ok(())
     }
 
-    /// True only when every required model is already cached on disk, so
-    /// onboarding can skip the download step.
-    pub fn models_present() -> bool {
-        unsafe { fluid_audio_models_present() }
+    /// True only when the ASR model for `language` and the shared diarizer are
+    /// both cached on disk, so that language can transcribe offline.
+    pub fn model_installed(language: &str) -> bool {
+        let Ok(c_lang) = CString::new(language) else {
+            return false;
+        };
+        unsafe { fluid_audio_model_installed(c_lang.as_ptr()) }
+    }
+
+    /// Download the ASR model for `language` (plus the shared diarizer if
+    /// missing), invoking `on_progress` with a real fraction 0.0–1.0 as bytes
+    /// land. Uses FluidAudio's own `progressHandler`, the only honest source
+    /// (files download to a temp path and move into the cache dir only on
+    /// completion, so polling dir size stalls then jumps).
+    pub async fn download_language_with_progress<F>(
+        language: &str,
+        on_progress: F,
+    ) -> Result<(), String>
+    where
+        F: Fn(f64) + Send + 'static,
+    {
+        let c_lang = CString::new(language).map_err(|e| format!("Invalid language: {}", e))?;
+        let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+        let ctx = Box::new(PrefetchContext {
+            on_progress: Box::new(on_progress),
+            done: Some(tx),
+        });
+        let context = Box::into_raw(ctx) as *mut c_void;
+
+        unsafe {
+            fluid_audio_download_language(
+                c_lang.as_ptr(),
+                prefetch_progress_callback,
+                prefetch_done_callback,
+                context,
+            );
+        }
+
+        rx.await
+            .map_err(|_| "Download callback not received".to_string())?
+    }
+
+    /// Remove the ASR model cache for `language` to reclaim disk. The shared
+    /// diarizer is left in place. Returns true on success (incl. nothing cached).
+    pub fn delete_language(language: &str) -> bool {
+        let Ok(c_lang) = CString::new(language) else {
+            return false;
+        };
+        unsafe { fluid_audio_delete_language(c_lang.as_ptr()) }
+    }
+}
+
+/// Shared between the progress and completion FFI callbacks via one raw pointer.
+/// Progress callbacks only borrow it; the completion callback owns and frees it.
+struct PrefetchContext {
+    on_progress: Box<dyn Fn(f64) + Send>,
+    done: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+}
+
+/// Progress tick — borrows the context (does not free it; completion does).
+unsafe extern "C" fn prefetch_progress_callback(fraction: f64, context: *mut c_void) {
+    if context.is_null() {
+        return;
+    }
+    let ctx = &*(context as *const PrefetchContext);
+    (ctx.on_progress)(fraction);
+}
+
+/// Terminal callback — takes ownership of the context, resolves the channel,
+/// and drops the box (called exactly once, after the last progress tick).
+unsafe extern "C" fn prefetch_done_callback(
+    _success_ptr: *const c_char,
+    error_ptr: *const c_char,
+    context: *mut c_void,
+) {
+    if context.is_null() {
+        tracing::error!("Prefetch done callback: context is null");
+        return;
+    }
+    let mut ctx = Box::from_raw(context as *mut PrefetchContext);
+
+    let result = if !error_ptr.is_null() {
+        let error_str = CStr::from_ptr(error_ptr).to_string_lossy().to_string();
+        tracing::error!(error = %error_str, "FluidAudio prefetch error");
+        Err(error_str)
+    } else {
+        Ok(())
+    };
+
+    if let Some(tx) = ctx.done.take() {
+        if tx.send(result).is_err() {
+            tracing::warn!("Prefetch done callback: receiver dropped");
+        }
     }
 }
 
