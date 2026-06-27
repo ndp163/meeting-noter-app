@@ -50,6 +50,10 @@ pub struct Meeting {
     pub updated_at: i64,
     pub duration: i64,
     pub status: String,
+    /// ASR language for this meeting (`"en"` or `"ja"`). Absent on older
+    /// meetings, which default to English.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
     #[serde(alias = "audio_path")]
     pub audio_path: Option<String>,
     pub transcript: Vec<TranscriptMessage>,

@@ -108,6 +108,7 @@ pub async fn start(
     app_handle: AppHandle,
     state: &RecorderState,
     meeting_id: String,
+    language: Option<String>,
 ) -> Result<(), String> {
     let mut guard = state.inner.lock().await;
     if guard.is_some() {
@@ -130,6 +131,7 @@ pub async fn start(
         result_state.clone(),
         event_tx,
         meeting_id,
+        language,
         app_handle.clone(),
     );
 
@@ -190,13 +192,14 @@ fn spawn_recorder_task(
     result_state: Arc<Mutex<Option<Result<(), String>>>>,
     event_tx: crossbeam_channel::Sender<TranscriptionEvent>,
     meeting_id: String,
+    language: Option<String>,
     app_handle: AppHandle,
 ) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn_blocking(move || {
         tokio::runtime::Handle::current().block_on(async move {
             let mut recorder = recorder_arc.lock().await;
             let outcome = recorder
-                .start(Some(event_tx), Some(meeting_id), Some(app_handle))
+                .start(Some(event_tx), Some(meeting_id), language, Some(app_handle))
                 .await
                 .map_err(|err| format!("{}", err));
 
