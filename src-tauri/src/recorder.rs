@@ -71,6 +71,9 @@ impl TranscriptionEvent {
 pub struct AudioRecorder {
     config: AudioConfig,
     transcriber: Option<Transcriber>,
+    /// Language the cached `transcriber` was initialized for. When a new session
+    /// requests a different language, the engine is reloaded with the right model.
+    current_language: Option<String>,
     cancel_token: CancellationToken,
 }
 
@@ -85,6 +88,7 @@ impl AudioRecorder {
         Self {
             config,
             transcriber: None,
+            current_language: None,
             cancel_token: CancellationToken::new(),
         }
     }
@@ -114,6 +118,7 @@ impl AudioRecorder {
         &mut self,
         events_tx: Option<Sender<TranscriptionEvent>>,
         meeting_id: Option<String>,
+        language: Option<String>,
         app_handle: Option<AppHandle>,
     ) -> Result<()> {
         // Probe the mic to learn its real capture rate. A Bluetooth headset
@@ -135,9 +140,14 @@ impl AudioRecorder {
         // the speaker rate separately without causing a TAP device conflict.
         let sample_rate = SAMPLE_RATE_48KHZ;
 
-        if self.transcriber.is_none() {
+        // Default to English when unspecified. Reload the engine when the
+        // requested language differs from the cached one (e.g. EN -> JA).
+        let language = language.unwrap_or_else(|| "en".to_string());
+        let needs_init = self.transcriber.is_none()
+            || self.current_language.as_deref() != Some(language.as_str());
+        if needs_init {
             emit_status(&app_handle, "preparing");
-            if let Err(e) = self.initialize_transcriber().await {
+            if let Err(e) = self.initialize_transcriber(&language).await {
                 tracing::warn!(error = %e, "Continuing without transcription");
             }
         }
@@ -156,19 +166,27 @@ impl AudioRecorder {
         Ok(())
     }
 
-    /// Build the transcriber from config and initialize it, with a timeout.
-    async fn initialize_transcriber(&mut self) -> Result<()> {
+    /// Build the transcriber from config and initialize it for `language`, with
+    /// a timeout.
+    async fn initialize_transcriber(&mut self, language: &str) -> Result<()> {
+        // Drop the stale engine first so a failed reload doesn't leave a
+        // wrong-language transcriber cached.
+        self.transcriber = None;
+        self.current_language = None;
+
         let transcriber = create_transcriber(self.config.engine);
         tracing::info!(
             timeout_secs = self.config.init_timeout_secs,
+            language,
             "Initializing transcription engine..."
         );
 
         let timeout = Duration::from_secs(self.config.init_timeout_secs);
-        match tokio::time::timeout(timeout, transcriber.asr.initialize()).await {
+        match tokio::time::timeout(timeout, transcriber.asr.initialize(language)).await {
             Ok(Ok(())) => {
                 tracing::info!("Transcription engine initialized");
                 self.transcriber = Some(transcriber);
+                self.current_language = Some(language.to_string());
                 Ok(())
             }
             Ok(Err(e)) => Err(anyhow::anyhow!(e)),

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { MeetingLanguage } from "@/types/meeting";
 
 const TRANSCRIPTION_EVENT = "transcription://chunk";
 const TRANSCRIPTION_STATUS_EVENT = "transcription://status";
@@ -33,8 +34,11 @@ export interface TranscriptionEventPayload {
   start_sec: number; // Offset (seconds) of this result within the recording
 }
 
-export const startTranscription = async (meetingId: string) => {
-  await invoke("start_transcription", { meetingId });
+export const startTranscription = async (
+  meetingId: string,
+  language: MeetingLanguage = "en",
+) => {
+  await invoke("start_transcription", { meetingId, language });
 };
 
 export const stopTranscription = async () => {

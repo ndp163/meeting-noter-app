@@ -38,7 +38,9 @@ pub fn models_ready() -> bool {
 pub async fn prefetch_models(app: AppHandle) -> Result<(), String> {
     emit_stage(&app, "preparing-transcription");
     let transcriber = create_transcriber(AudioConfig::default().engine);
-    transcriber.asr.initialize().await?;
+    // Onboarding prefetches the default English model; the Japanese model is
+    // downloaded lazily on the first Japanese meeting.
+    transcriber.asr.initialize("en").await?;
 
     emit_stage(&app, "preparing-speaker");
     FluidAudio::new().prefetch_diarizer().await?;

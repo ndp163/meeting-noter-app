@@ -8,7 +8,7 @@
 
 use crate::bridges::FluidAudio;
 use crate::paths;
-use crate::types::DiarizedSegment;
+use crate::types::{DiarizedSegment, Meeting};
 use serde::Deserialize;
 use tauri::command;
 
@@ -21,6 +21,17 @@ struct RawSegment {
     text: String,
 }
 
+/// Read the language the meeting was recorded with from its data.json, falling
+/// back to English so older meetings (no `language` field) keep working.
+fn meeting_language(meeting_id: &str) -> String {
+    let path = paths::get_meeting_data_path(meeting_id);
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|c| serde_json::from_str::<Meeting>(&c).ok())
+        .and_then(|m| m.language)
+        .unwrap_or_else(|| "en".to_string())
+}
+
 #[command]
 #[tracing::instrument]
 pub async fn diarize_meeting(meeting_id: String) -> Result<Vec<DiarizedSegment>, String> {
@@ -29,12 +40,15 @@ pub async fn diarize_meeting(meeting_id: String) -> Result<Vec<DiarizedSegment>,
     let mic_wav = dir.join("mic.wav");
     let audio_wav = dir.join("audio.wav");
 
+    // Offline ASR must use the same language model the meeting was recorded with.
+    let language = meeting_language(&meeting_id);
+
     let fluid = FluidAudio::new();
     let mut segments: Vec<DiarizedSegment> = Vec::new();
 
     if speaker_wav.exists() {
         tracing::info!("Diarizing per-source tracks for meeting {}", meeting_id);
-        let remote = run(&fluid, &speaker_wav, true).await?;
+        let remote = run(&fluid, &speaker_wav, true, &language).await?;
         segments.extend(remote.into_iter().map(|r| DiarizedSegment {
             speaker_id: format!("remote-{}", r.speaker),
             label: format!("Speaker {}", r.speaker + 1),
@@ -48,7 +62,7 @@ pub async fn diarize_meeting(meeting_id: String) -> Result<Vec<DiarizedSegment>,
             // gives accurate speech boundaries, whereas token-duration splitting
             // inflates segments across trailing silence. The mic is a single
             // known speaker, so collapse every cluster to "You".
-            let mic = run(&fluid, &mic_wav, true).await?;
+            let mic = run(&fluid, &mic_wav, true, &language).await?;
             segments.extend(mic.into_iter().map(|r| DiarizedSegment {
                 speaker_id: "you".to_string(),
                 label: "You".to_string(),
@@ -59,7 +73,7 @@ pub async fn diarize_meeting(meeting_id: String) -> Result<Vec<DiarizedSegment>,
         }
     } else if audio_wav.exists() {
         tracing::info!("No side tracks; diarizing mixed audio for meeting {}", meeting_id);
-        let mixed = run(&fluid, &audio_wav, true).await?;
+        let mixed = run(&fluid, &audio_wav, true, &language).await?;
         segments.extend(mixed.into_iter().map(|r| DiarizedSegment {
             speaker_id: format!("remote-{}", r.speaker),
             label: format!("Speaker {}", r.speaker + 1),
@@ -76,10 +90,15 @@ pub async fn diarize_meeting(meeting_id: String) -> Result<Vec<DiarizedSegment>,
     Ok(segments)
 }
 
-async fn run(fluid: &FluidAudio, path: &std::path::Path, diarize: bool) -> Result<Vec<RawSegment>, String> {
+async fn run(
+    fluid: &FluidAudio,
+    path: &std::path::Path,
+    diarize: bool,
+    language: &str,
+) -> Result<Vec<RawSegment>, String> {
     let path_str = path
         .to_str()
         .ok_or_else(|| "Invalid audio path".to_string())?;
-    let json = fluid.diarize_file(path_str, diarize).await?;
+    let json = fluid.diarize_file(path_str, diarize, language).await?;
     serde_json::from_str(&json).map_err(|e| format!("Failed to parse diarization result: {}", e))
 }
