@@ -1,120 +1,159 @@
-import { useEffect, useState } from "react";
-import {
-  onSetupStage,
-  prefetchModels,
-  type SetupStage,
-} from "@/services/setup";
+import { useCallback, useState } from "react";
+import { Check } from "lucide-react";
 import { SetupCard, Step, Button } from "@/design-system";
+import { cn } from "@/lib/utils";
+import { LANGUAGES } from "@/lib/languages";
+import type { MeetingLanguage } from "@/types/meeting";
+import { useModelManager } from "@/features/models/use-model-manager";
+import { DownloadIndicator } from "@/features/models/download-indicator";
 
-// Ordered download steps shown as a checklist. Sizes are approximate on-disk
-// totals; transcription is by far the largest, which is why a single percent
-// bar would stall then jump — the checklist gives honest per-step progress.
-const STEPS: { stage: SetupStage; label: string; size: string }[] = [
-  { stage: "preparing-transcription", label: "Transcription model", size: "~444 MB" },
-  { stage: "preparing-speaker", label: "Speaker model", size: "~13 MB" },
-];
-
-// Index of the in-flight step; equals STEPS.length once everything is done.
-const stepIndex = (stage: SetupStage) => {
-  const i = STEPS.findIndex((s) => s.stage === stage);
-  return i === -1 ? STEPS.length : i;
-};
-
-const formatElapsed = (seconds: number) => {
-  const mm = Math.floor(seconds / 60);
-  const ss = seconds % 60;
-  return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-};
+type Phase = "select" | "download";
 
 /**
- * One-time setup screen shown on first launch while the speech models
- * download. Blocks the app until models are ready; on failure the user can
- * retry (there is no skip — the app needs the models to function).
+ * First-launch setup. The user picks which language model(s) to install
+ * (at least one — the app needs a model to transcribe), then they download
+ * with real per-language progress. More languages can be added later from the
+ * in-app Models panel.
  */
 export const Onboarding = ({ onDone }: { onDone: () => void }) => {
-  const [stage, setStage] = useState<SetupStage>("preparing-transcription");
-  const [error, setError] = useState<string | null>(null);
-  const [elapsed, setElapsed] = useState(0);
-  // Bumping `attempt` re-runs the prefetch effect on retry.
-  const [attempt, setAttempt] = useState(0);
+  const [phase, setPhase] = useState<Phase>("select");
+  const [selected, setSelected] = useState<MeetingLanguage[]>(["en"]);
+  const { errors, download, isInstalled, isDownloading } = useModelManager();
 
-  // Elapsed timer, reset on each attempt and stopped on error.
-  useEffect(() => {
-    if (error) return;
-    setElapsed(0);
-    const started = Date.now();
-    const id = setInterval(
-      () => setElapsed(Math.floor((Date.now() - started) / 1000)),
-      1000,
+  const toggle = (lang: MeetingLanguage) =>
+    setSelected((s) =>
+      s.includes(lang) ? s.filter((l) => l !== lang) : [...s, lang],
     );
-    return () => clearInterval(id);
-  }, [error, attempt]);
 
-  // Run the download and stream stage updates.
-  useEffect(() => {
-    let cancelled = false;
-    let unlisten: (() => void) | undefined;
-    setError(null);
-    setStage("preparing-transcription");
+  // Download each selected language in turn; finish once they all install.
+  // Stops on the first failure so the user can retry (already-installed
+  // languages are skipped on retry).
+  const runDownloads = useCallback(
+    async (langs: MeetingLanguage[]) => {
+      for (const lang of langs) {
+        if (isInstalled(lang)) continue;
+        const ok = await download(lang);
+        if (!ok) return;
+      }
+      onDone();
+    },
+    [download, isInstalled, onDone],
+  );
 
-    onSetupStage((s) => setStage(s)).then((u) => {
-      if (cancelled) u();
-      else unlisten = u;
-    });
-
-    prefetchModels()
-      .then(() => {
-        if (!cancelled) onDone();
-      })
-      .catch((e) => {
-        if (!cancelled) setError(String(e));
-      });
-
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [attempt, onDone]);
-
-  const current = stepIndex(stage);
+  const start = () => {
+    setPhase("download");
+    void runDownloads(selected);
+  };
 
   return (
-    <div className="ds-root ds-theme-vintage flex h-screen flex-col items-center justify-center px-8" style={{ background: "var(--ds-bg)" }}>
-      <SetupCard
-        title="Setting up Noter"
-        subtitle={
-          error
-            ? "Couldn’t download the speech models."
-            : current < STEPS.length
-              ? `Step ${current + 1} of ${STEPS.length} · Downloading models…`
-              : "Finishing up…"
-        }
-        footer={
-          error ? (
-            <div className="flex flex-col items-center gap-3" style={{ marginTop: 22 }}>
-              <p className="text-xs" style={{ color: "var(--ds-text-3)" }}>{error}</p>
-              <Button variant="primary" onClick={() => setAttempt((n) => n + 1)}>
-                Try again
-              </Button>
-            </div>
-          ) : (
-            <p className="text-xs tabular-nums" style={{ marginTop: 22, color: "var(--ds-text-3)" }}>
-              {formatElapsed(elapsed)} · ~450 MB · one-time download, usually 1–2 min
-              {elapsed > 30 && " · large files, hang tight"}
+    <div
+      className="ds-root ds-theme-vintage flex h-screen flex-col items-center justify-center px-8"
+      style={{ background: "var(--ds-bg)" }}
+    >
+      {phase === "select" ? (
+        <SetupCard
+          title="Setting up Meeting Noter"
+          subtitle="Choose the languages you'll transcribe. You can add more later."
+          footer={
+            <Button
+              variant="primary"
+              block
+              disabled={selected.length === 0}
+              onClick={start}
+              style={{ marginTop: 22 }}
+            >
+              {selected.length > 1 ? "Download models" : "Download model"}
+            </Button>
+          }
+        >
+          <div className="flex flex-col gap-2">
+            {LANGUAGES.map((lang) => {
+              const active = selected.includes(lang.id);
+              return (
+                <button
+                  key={lang.id}
+                  onClick={() => toggle(lang.id)}
+                  className={cn(
+                    "flex items-center gap-3 p-3 rounded-[var(--ds-radius-sm)] border text-left transition-colors",
+                    active
+                      ? "border-[var(--ds-accent)] bg-[var(--ds-surface-2)]"
+                      : "border-[var(--ds-border)] hover:bg-[var(--ds-surface-2)]",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex items-center justify-center w-5 h-5 rounded-[6px] border shrink-0",
+                      active
+                        ? "bg-[var(--ds-accent)] border-[var(--ds-accent)] text-[var(--ds-bg)]"
+                        : "border-[var(--ds-border-2)]",
+                    )}
+                  >
+                    {active && <Check className="w-3.5 h-3.5" />}
+                  </span>
+                  <span className="flex flex-col min-w-0 flex-1">
+                    <span className="text-sm font-medium text-[var(--ds-text)]">
+                      {lang.label}
+                      {lang.native !== lang.label && (
+                        <span className="text-[var(--ds-text-3)] font-normal">
+                          {" "}
+                          · {lang.native}
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-xs text-[var(--ds-text-3)]">
+                      {lang.approxSize}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </SetupCard>
+      ) : (
+        <SetupCard
+          title="Setting up Meeting Noter"
+          subtitle="Downloading your language models — this is a one-time step."
+          footer={
+            <p
+              className="text-xs"
+              style={{ marginTop: 22, color: "var(--ds-text-3)" }}
+            >
+              Models run fully offline. Large files — usually 1–2 min each.
             </p>
-          )
-        }
-      >
-        {STEPS.map((s, i) => (
-          <Step
-            key={s.stage}
-            index={i + 1}
-            label={s.label}
-            state={error ? "todo" : i < current ? "done" : i === current ? "active" : "todo"}
-            hint={s.size}
-          />
-        ))}
-      </SetupCard>
+          }
+        >
+          {selected.map((lang, i) => {
+            const info = LANGUAGES.find((l) => l.id === lang)!;
+            const done = isInstalled(lang);
+            const active = isDownloading(lang);
+            const error = errors[lang];
+            return (
+              <Step
+                key={lang}
+                index={i + 1}
+                label={`${info.label} model`}
+                state={done ? "done" : active ? "active" : "todo"}
+                hint={done ? "Installed" : info.approxSize}
+              >
+                {active && <DownloadIndicator />}
+                {error && (
+                  <div className="flex flex-col items-start gap-2 mt-2">
+                    <p className="text-xs text-[var(--ds-rec)]">{error}</p>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      pill
+                      onClick={() => void runDownloads(selected)}
+                    >
+                      Try again
+                    </Button>
+                  </div>
+                )}
+              </Step>
+            );
+          })}
+        </SetupCard>
+      )}
     </div>
   );
 };
