@@ -1,8 +1,8 @@
 [package]
 name = "noter"
-version = "0.1.1"
-description = "A Tauri App"
-authors = ["you"]
+version = "0.9.1"
+description = "Meeting Noter — offline, on-device meeting transcription"
+authors = ["ndp163"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -28,7 +28,6 @@ serde_json = "1.0.148"
 cpal = "0.17.1"
 anyhow = "1.0.100"
 hound = "3.5.1"
-thread = "0.0.1"
 cidre = "0.11.10"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

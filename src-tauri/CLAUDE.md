@@ -8,6 +8,11 @@ Rust backend + Swift `FluidAudioBridge` FFI. Flow + sequence diagrams:
 `cargo build` / `cargo run` from this dir. App run via `pnpm tauri dev` (root).
 Don't touch model weight files.
 
+**Swift bridge prerequisite:** `build.rs` links the prebuilt
+`lib/libFluidAudioBridge.dylib` and **panics if it's missing**. Build it first:
+`swift build -c release` (produces the dylib from `src/swift/FluidAudio.swift`).
+Re-run after changing the Swift source.
+
 ## Layout
 
 - `commands/` — Tauri `invoke` handlers, one module per domain (transcription,
