@@ -119,7 +119,7 @@ export const MainContent = ({
                 <div ref={messagesEndRef} />
               </>
             ) : (
-              <div className="text-custom-text-secondary text-sm">
+              <div className="text-[var(--ds-text-2)] text-sm">
                 {isPreparingModel
                   ? "Preparing the speech model, this only takes a moment…"
                   : isCapturing

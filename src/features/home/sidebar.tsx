@@ -45,7 +45,7 @@ export const Sidebar = ({
         "flex flex-col gap-2.5 h-screen px-2.5 py-5 border-r border-[var(--ds-border)]",
         isSidebarCollapsed ? "w-16" : "w-full max-w-[411px]",
       )}
-      style={{ background: "#fcfcfb" }}
+      style={{ background: "var(--ds-surface)" }}
     >
       {/* Header */}
       <div
@@ -84,7 +84,7 @@ export const Sidebar = ({
       {/* Meetings List */}
       <div className="flex flex-col gap-1 overflow-y-auto px-1">
         {!isSidebarCollapsed && meetings.length === 0 ? (
-          <div className="text-center text-custom-text-secondary text-sm p-4">
+          <div className="text-center text-[var(--ds-text-2)] text-sm p-4">
             No meetings yet. Press Start Capture to create one.
           </div>
         ) : (
@@ -164,15 +164,15 @@ const MeetingCard = ({
       <div
         onClick={onClick}
         className={cn(
-          "flex items-center justify-center min-h-[40px] p-2 rounded-[10px] cursor-pointer relative",
-          isActive ? "bg-custom-bg-primary" : "hover:bg-custom-bg-secondary",
+          "flex items-center justify-center min-h-[40px] p-2 rounded-[var(--ds-radius-sm)] cursor-pointer relative",
+          isActive ? "bg-[var(--ds-border)]" : "hover:bg-[var(--ds-surface-2)]",
         )}
         title={meeting.title}
       >
         {meeting.status === "recording" ? (
-          <div className="w-2 h-2 rounded-full bg-custom-red animate-pulse" />
+          <div className="w-2 h-2 rounded-full bg-[var(--ds-rec)] animate-pulse" />
         ) : (
-          <div className="w-2 h-2 rounded-full bg-custom-text-primary" />
+          <div className="w-2 h-2 rounded-full bg-[var(--ds-text)]" />
         )}
       </div>
     );
@@ -199,7 +199,7 @@ const MeetingCard = ({
             style={{ borderColor: "var(--ds-border-2)", color: "var(--ds-text)" }}
           />
         ) : isTitling ? (
-          <div className="flex items-center gap-1.5 min-w-0 text-custom-text-secondary">
+          <div className="flex items-center gap-1.5 min-w-0 text-[var(--ds-text-2)]">
             <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
             <span className="ds-meeting__title italic">Generating title…</span>
           </div>
@@ -210,16 +210,16 @@ const MeetingCard = ({
             </p>
             <button
               onClick={startEditing}
-              className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-custom-bg-secondary shrink-0"
+              className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[var(--ds-surface-2)] shrink-0"
               title="Rename meeting"
             >
-              <Pencil className="w-3.5 h-3.5 text-custom-text-secondary" />
+              <Pencil className="w-3.5 h-3.5 text-[var(--ds-text-2)]" />
             </button>
           </div>
         )}
         {meeting.status === "recording" && (
-          <span className="flex items-center gap-1 text-xs text-custom-red">
-            <span className="h-2 w-2 rounded-full bg-custom-red animate-pulse" />
+          <span className="flex items-center gap-1 text-xs text-[var(--ds-rec)]">
+            <span className="h-2 w-2 rounded-full bg-[var(--ds-rec)] animate-pulse" />
             Rec
           </span>
         )}
@@ -229,10 +229,10 @@ const MeetingCard = ({
         {meeting.status !== "recording" && (
           <button
             onClick={handleDelete}
-            className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-custom-red/10"
+            className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[var(--ds-rec-soft)]"
             title="Delete meeting"
           >
-            <Trash2 className="w-4 h-4 text-custom-red" />
+            <Trash2 className="w-4 h-4 text-[var(--ds-rec)]" />
           </button>
         )}
       </div>

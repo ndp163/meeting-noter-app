@@ -32,7 +32,7 @@ export const SummaryView = ({
 
   if (isLoading) {
     return (
-      <div className="text-custom-text-secondary text-sm">
+      <div className="text-[var(--ds-text-2)] text-sm">
         Generating summary with Claude…
       </div>
     );
@@ -40,7 +40,7 @@ export const SummaryView = ({
 
   if (claudeReady === false) {
     return (
-      <div className="text-custom-text-secondary text-sm">
+      <div className="text-[var(--ds-text-2)] text-sm">
         AI summaries use the Claude Code CLI. Install Claude Code and log in,
         then reopen this tab.
       </div>
@@ -50,7 +50,7 @@ export const SummaryView = ({
   if (error) {
     return (
       <div className="flex flex-col gap-3 items-start">
-        <p className="text-sm text-custom-red">{error}</p>
+        <p className="text-sm text-[var(--ds-rec)]">{error}</p>
         <Button variant="ghost" pill onClick={onRun}>
           Try again
         </Button>
@@ -61,14 +61,14 @@ export const SummaryView = ({
   if (!summary) {
     if (!canRun) {
       return (
-        <div className="text-custom-text-secondary text-sm">
+        <div className="text-[var(--ds-text-2)] text-sm">
           A summary is available after a recording finishes.
         </div>
       );
     }
     return (
       <div className="flex flex-col gap-3 items-start">
-        <p className="text-sm text-custom-text-secondary">
+        <p className="text-sm text-[var(--ds-text-2)]">
           Generate a TL;DR, key points, decisions, and action items from this
           meeting's transcript using Claude.
         </p>
@@ -95,10 +95,10 @@ export const SummaryView = ({
       {lang === "vi" && !summaryVi ? (
         <div className="flex flex-col gap-3 items-start">
           {translateError && (
-            <p className="text-sm text-custom-red">{translateError}</p>
+            <p className="text-sm text-[var(--ds-rec)]">{translateError}</p>
           )}
           {isTranslating ? (
-            <p className="text-custom-text-secondary text-sm">
+            <p className="text-[var(--ds-text-2)] text-sm">
               Đang dịch sang tiếng Việt…
             </p>
           ) : (
