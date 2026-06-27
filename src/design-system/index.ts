@@ -19,6 +19,9 @@ export type { TabsProps, TabItem } from "./Tabs";
 export { Card } from "./Card";
 export type { CardProps } from "./Card";
 
+export { Modal } from "./Modal";
+export type { ModalProps } from "./Modal";
+
 export { MeetingCard } from "./MeetingCard";
 export type { MeetingCardProps, MeetingSource } from "./MeetingCard";
 
