@@ -1,7 +1,5 @@
 import { useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { cn } from "@/lib/utils";
+import { Button, PillToggle, Prose } from "@/design-system";
 
 interface SummaryViewProps {
   summary: string | undefined;
@@ -51,14 +49,11 @@ export const SummaryView = ({
 
   if (error) {
     return (
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3 items-start">
         <p className="text-sm text-custom-red">{error}</p>
-        <button
-          onClick={onRun}
-          className="self-start rounded-full border border-custom-text-primary px-4 py-1.5 text-sm text-custom-text-primary hover:bg-custom-bg-secondary"
-        >
+        <Button variant="ghost" pill onClick={onRun}>
           Try again
-        </button>
+        </Button>
       </div>
     );
   }
@@ -72,17 +67,14 @@ export const SummaryView = ({
       );
     }
     return (
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3 items-start">
         <p className="text-sm text-custom-text-secondary">
           Generate a TL;DR, key points, decisions, and action items from this
           meeting's transcript using Claude.
         </p>
-        <button
-          onClick={onRun}
-          className="self-start rounded-full border border-custom-text-primary px-4 py-1.5 text-sm text-custom-text-primary hover:bg-custom-bg-secondary"
-        >
+        <Button variant="ghost" pill onClick={onRun}>
           Generate summary
-        </button>
+        </Button>
       </div>
     );
   }
@@ -91,22 +83,17 @@ export const SummaryView = ({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Language toggle */}
-      <div className="flex items-center gap-2">
-        <LangButton
-          label="Original"
-          active={lang === "en"}
-          onClick={() => setLang("en")}
-        />
-        <LangButton
-          label="Tiếng Việt"
-          active={lang === "vi"}
-          onClick={() => setLang("vi")}
-        />
-      </div>
+      <PillToggle
+        options={[
+          { id: "en", label: "Original" },
+          { id: "vi", label: "Tiếng Việt" },
+        ]}
+        value={lang}
+        onChange={(id) => setLang(id as Lang)}
+      />
 
       {lang === "vi" && !summaryVi ? (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 items-start">
           {translateError && (
             <p className="text-sm text-custom-red">{translateError}</p>
           )}
@@ -115,58 +102,25 @@ export const SummaryView = ({
               Đang dịch sang tiếng Việt…
             </p>
           ) : (
-            <button
-              onClick={onTranslate}
-              className="self-start rounded-full border border-custom-text-primary px-4 py-1.5 text-sm text-custom-text-primary hover:bg-custom-bg-secondary"
-            >
+            <Button variant="ghost" pill onClick={onTranslate}>
               Dịch sang tiếng Việt
-            </button>
+            </Button>
           )}
         </div>
       ) : (
-        <div className="prose prose-sm max-w-none text-custom-text-primary">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{shown}</ReactMarkdown>
-        </div>
+        <Prose markdown={shown} />
       )}
 
       <div className="flex items-center gap-2">
-        <button
-          onClick={onRun}
-          className="self-start rounded-full border border-custom-text-primary px-4 py-1.5 text-sm text-custom-text-primary hover:bg-custom-bg-secondary"
-        >
+        <Button variant="ghost" pill onClick={onRun}>
           Regenerate
-        </button>
+        </Button>
         {lang === "vi" && summaryVi && !isTranslating && (
-          <button
-            onClick={onTranslate}
-            className="self-start rounded-full border border-custom-text-primary px-4 py-1.5 text-sm text-custom-text-primary hover:bg-custom-bg-secondary"
-          >
+          <Button variant="ghost" pill onClick={onTranslate}>
             Dịch lại
-          </button>
+          </Button>
         )}
       </div>
     </div>
   );
 };
-
-const LangButton = ({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) => (
-  <button
-    onClick={onClick}
-    className={cn(
-      "rounded-full px-3 py-1 text-sm",
-      active
-        ? "bg-custom-text-primary text-white"
-        : "text-custom-text-secondary hover:bg-custom-bg-secondary"
-    )}
-  >
-    {label}
-  </button>
-);

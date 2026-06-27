@@ -1,0 +1,91 @@
+/* Meeting Noter Design System — tokens
+ * Default theme: Vintage (Sepia / Paper). Modern minimal is opt-in via
+ * class "ds-theme-modern". All component styling derives from these --ds-*
+ * custom properties (prefixed to avoid colliding with the app's
+ * --color-custom-* tokens). */
+:root {
+  /* surfaces */
+  --ds-bg:          #f4ece0;  /* cream paper */
+  --ds-surface:     #fbf6ec;  /* warm white */
+  --ds-surface-2:   #efe5d6;  /* inset / hover */
+
+  /* borders */
+  --ds-border:      #e3d8c6;  /* tan hairline */
+  --ds-border-2:    #d7c8b0;  /* stronger hairline */
+
+  /* text */
+  --ds-text:        #3a3128;  /* brown ink */
+  --ds-text-2:      #6b5f4f;  /* secondary */
+  --ds-text-3:      #9b8e78;  /* tertiary / meta */
+  --ds-on-accent:   #fbf6ec;
+
+  /* accent — terracotta */
+  --ds-accent:      #b5552f;
+  --ds-accent-2:    #d08a4f;  /* amber (gradient pair) */
+  --ds-accent-soft: #f3e4d4;
+  --ds-accent-ink:  #7a3a1f;  /* text on accent-soft surfaces (e.g. TL;DR callout) */
+
+  /* status */
+  --ds-rec:         #a23b2e;  /* recording — brick red */
+  --ds-rec-soft:    #f1ddd4;
+  --ds-ok:          #6f7a4d;  /* olive */
+
+  /* radius */
+  --ds-radius-sm:   10px;
+  --ds-radius:      14px;
+  --ds-radius-lg:   20px;
+  --ds-radius-pill: 999px;
+
+  /* elevation */
+  --ds-shadow:      0 1px 2px rgba(58,49,40,.05), 0 4px 16px rgba(58,49,40,.07);
+  --ds-shadow-lg:   0 8px 40px rgba(58,49,40,.12);
+
+  /* type */
+  --ds-font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --ds-text-xs:  11px;
+  --ds-text-sm:  13px;
+  --ds-text-md:  14px;
+  --ds-text-lg:  15px;
+  --ds-text-xl:  20px;
+
+  /* spacing scale */
+  --ds-space-1: 4px;
+  --ds-space-2: 8px;
+  --ds-space-3: 12px;
+  --ds-space-4: 16px;
+  --ds-space-5: 20px;
+  --ds-space-6: 24px;
+}
+
+/* ---------- Modern minimal theme ----------
+ * Opt-in: add class "ds-theme-modern" to a DS root. Overrides only the
+ * palette tokens; radius / type / spacing inherit from :root. */
+.ds-theme-modern {
+  --ds-bg:          #fbfbfa;  /* warm near-white */
+  --ds-surface:     #ffffff;
+  --ds-surface-2:   #f5f5f4;
+
+  --ds-border:      #ebeae8;
+  --ds-border-2:    #e0dfdc;
+
+  --ds-text:        #1f2421;
+  --ds-text-2:      #6b716d;
+  --ds-text-3:      #9b9f9c;
+  --ds-on-accent:   #ffffff;
+
+  --ds-accent:      #2f5bea;  /* cool blue */
+  --ds-accent-2:    #6d8bff;
+  --ds-accent-soft: #eef2fe;
+  --ds-accent-ink:  #213a8f;
+
+  --ds-rec:         #e0484d;  /* softened red */
+  --ds-rec-soft:    #fdeced;
+  --ds-ok:          #2e9e6b;
+
+  --ds-shadow:      0 1px 2px rgba(20,22,21,.04), 0 4px 16px rgba(20,22,21,.05);
+  --ds-shadow-lg:   0 8px 40px rgba(20,22,21,.10);
+}
+
+/* Back-compat: ds-theme-vintage is now the default, kept as a no-op alias so
+ * existing markup that sets it still resolves to the (vintage) :root tokens. */
+.ds-theme-vintage { }

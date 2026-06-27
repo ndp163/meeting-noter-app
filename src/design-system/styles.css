@@ -1,0 +1,5 @@
+/* Meeting Noter Design System — entry stylesheet.
+ * design-sync ships only this file's transitive @import closure to rendered
+ * designs, so every DS style must be reachable from here. */
+@import "./tokens.css";
+@import "./components.css";

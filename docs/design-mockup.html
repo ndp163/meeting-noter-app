@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Meeting Noter — Modern Minimal Redesign</title>
+<style>
+  /* ---------- Design tokens (modern minimal) ---------- */
+  :root {
+    --bg:           #fbfbfa;   /* app canvas — warm near-white */
+    --surface:      #ffffff;   /* cards / panels */
+    --surface-2:    #f5f5f4;   /* hover / inset */
+    --border:       #ebeae8;   /* hairline */
+    --border-2:     #e0dfdc;   /* stronger hairline */
+    --text:         #1f2421;   /* primary ink */
+    --text-2:       #6b716d;   /* secondary */
+    --text-3:       #9b9f9c;   /* tertiary / meta */
+    --accent:       #2f5bea;   /* single cool accent (links, active) */
+    --accent-soft:  #eef2fe;
+    --rec:          #e0484d;   /* recording — softened red */
+    --rec-soft:     #fdeced;
+    --ok:           #2e9e6b;
+    --radius:       14px;
+    --radius-sm:    10px;
+    --radius-lg:    20px;
+    --shadow:       0 1px 2px rgba(20,22,21,.04), 0 4px 16px rgba(20,22,21,.05);
+    --shadow-lg:    0 8px 40px rgba(20,22,21,.10);
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font);
+    background:
+      radial-gradient(1200px 600px at 80% -10%, #f0f1ff 0%, transparent 55%),
+      var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+    padding: 48px 24px 80px;
+  }
+  .page-title { max-width: 1180px; margin: 0 auto 8px; }
+  .page-title h1 { font-size: 22px; font-weight: 650; letter-spacing: -.02em; }
+  .page-title p  { color: var(--text-2); font-size: 14px; margin-top: 2px; }
+  .section-label {
+    max-width: 1180px; margin: 44px auto 14px;
+    font-size: 11px; font-weight: 600; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--text-3);
+  }
+
+  /* ---------- App window chrome ---------- */
+  .window {
+    max-width: 1180px; margin: 0 auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+  }
+  .titlebar {
+    height: 40px; display: flex; align-items: center; gap: 8px;
+    padding: 0 16px; border-bottom: 1px solid var(--border);
+    background: linear-gradient(var(--surface), #fcfcfb);
+  }
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .dot.r { background: #ff5f57; } .dot.y { background: #febc2e; } .dot.g { background: #28c840; }
+  .titlebar .t { margin-left: 8px; font-size: 12.5px; color: var(--text-3); font-weight: 500; }
+
+  .app { display: flex; height: 660px; }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar {
+    width: 300px; flex-shrink: 0; display: flex; flex-direction: column;
+    border-right: 1px solid var(--border);
+    padding: 16px 12px; gap: 14px; background: #fcfcfb;
+  }
+  .side-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px; }
+  .brand { display: flex; align-items: center; gap: 9px; }
+  .brand .logo {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent), #6d8bff);
+    display: grid; place-items: center; color: #fff; box-shadow: var(--shadow);
+  }
+  .brand h2 { font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+  .icon-btn {
+    width: 30px; height: 30px; border-radius: 8px; border: none; background: transparent;
+    color: var(--text-2); display: grid; place-items: center; cursor: pointer;
+  }
+  .icon-btn:hover { background: var(--surface-2); }
+
+  .capture {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    height: 52px; border-radius: var(--radius-sm); cursor: pointer;
+    border: 1px solid var(--rec); color: var(--rec); background: var(--rec-soft);
+    font-size: 14px; font-weight: 600; transition: .15s;
+  }
+  .capture:hover { background: #fce0e1; }
+  .capture .pulse { width: 9px; height: 9px; border-radius: 50%; background: var(--rec); animation: pulse 1.4s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+  .list-label { font-size: 11px; font-weight: 600; letter-spacing: .06em; color: var(--text-3); text-transform: uppercase; padding: 2px 6px; }
+  .meetings { display: flex; flex-direction: column; gap: 4px; overflow: auto; }
+  .meeting {
+    padding: 10px 11px; border-radius: var(--radius-sm); cursor: pointer;
+    display: flex; flex-direction: column; gap: 4px; border: 1px solid transparent;
+  }
+  .meeting:hover { background: var(--surface-2); }
+  .meeting.active { background: var(--surface); border-color: var(--border-2); box-shadow: var(--shadow); }
+  .meeting .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .meeting .title { font-size: 14px; font-weight: 550; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meeting .meta { font-size: 12px; color: var(--text-3); }
+  .rec-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: var(--rec); }
+  .rec-tag .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--rec); animation: pulse 1.4s infinite; }
+  .src { font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 6px; background: var(--surface-2); color: var(--text-2); }
+
+  /* ---------- Main ---------- */
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; padding: 18px 20px; gap: 14px; }
+  .toolbar { display: flex; align-items: center; gap: 6px; }
+  .tabs { display: flex; gap: 2px; background: var(--surface-2); padding: 3px; border-radius: 10px; }
+  .tab {
+    border: none; background: transparent; cursor: pointer;
+    font-size: 13.5px; font-weight: 550; color: var(--text-2);
+    padding: 6px 16px; border-radius: 8px;
+  }
+  .tab.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+  .status { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-2); }
+  .status .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--rec); animation: pulse 1.4s infinite; }
+
+  .panel {
+    flex: 1; border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--surface); overflow: auto; padding: 22px 24px;
+  }
+
+  /* transcript */
+  .msg { padding-bottom: 18px; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
+  .msg:last-child { border-bottom: none; }
+  .msg .head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .speaker { font-size: 14px; font-weight: 650; }
+  .speaker.me { color: var(--accent); }
+  .ts { font-size: 12.5px; color: var(--text-3); font-variant-numeric: tabular-nums; cursor: pointer; }
+  .ts:hover { color: var(--accent); }
+  .msg p.body { font-size: 14.5px; color: var(--text); line-height: 1.62; }
+
+  /* audio player */
+  .player {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: linear-gradient(var(--surface), #fcfcfb);
+    padding: 12px 16px; display: flex; align-items: center; gap: 14px;
+  }
+  .play { width: 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer;
+    background: var(--text); color: #fff; display: grid; place-items: center; flex-shrink: 0; }
+  .wave { flex: 1; display: flex; align-items: center; gap: 2px; height: 38px; }
+  .wave span { flex: 1; background: var(--border-2); border-radius: 2px; }
+  .wave span.on { background: var(--accent); }
+  .time { font-size: 12.5px; color: var(--text-3); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+
+  /* summary */
+  .pill-row { display: flex; gap: 8px; margin-bottom: 18px; }
+  .pill { font-size: 13px; font-weight: 550; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--border-2); background: var(--surface); color: var(--text-2); cursor: pointer; }
+  .pill.active { background: var(--text); color: #fff; border-color: var(--text); }
+  .prose h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-3); margin: 22px 0 8px; }
+  .prose h3:first-child { margin-top: 0; }
+  .prose p { font-size: 14.5px; color: var(--text); margin-bottom: 6px; }
+  .prose ul { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  .prose li { font-size: 14.5px; padding-left: 24px; position: relative; color: var(--text); }
+  .prose li::before { content: ""; position: absolute; left: 4px; top: 9px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .prose li.task::before { content: "☐"; left: 0; top: 0; width: auto; height: auto; background: none; color: var(--accent); font-size: 15px; }
+  .tldr { background: var(--accent-soft); border: 1px solid #dde5ff; border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 6px; }
+  .tldr p { color: #213a8f; font-size: 14.5px; }
+  .ghost { border: 1px solid var(--border-2); background: var(--surface); color: var(--text); font-weight: 550; font-size: 13px; padding: 7px 16px; border-radius: 999px; cursor: pointer; margin-top: 22px; }
+  .ghost:hover { background: var(--surface-2); }
+
+  /* diarization */
+  .seg { display: flex; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .seg:last-child { border-bottom: none; }
+  .avatar { width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center; color: #fff; font-size: 13px; font-weight: 650; }
+  .a1{background:#2f5bea}.a2{background:#e08f2f}.a3{background:#2e9e6b}
+  .seg .who { font-size: 13.5px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
+  .seg .who .t { font-size: 12px; color: var(--text-3); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .seg .txt { font-size: 14px; color: var(--text-2); margin-top: 3px; }
+  .edit { opacity: .5; cursor: pointer; }
+
+  /* ---------- Onboarding card ---------- */
+  .onboard {
+    max-width: 1180px; margin: 0 auto; display: flex; justify-content: center;
+  }
+  .ob-card {
+    width: 520px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); padding: 36px 36px 30px; text-align: center;
+  }
+  .ob-card .logo { width: 52px; height: 52px; border-radius: 14px; margin: 0 auto 18px;
+    background: linear-gradient(135deg, var(--accent), #6d8bff); display: grid; place-items: center; color: #fff; box-shadow: var(--shadow); }
+  .ob-card h2 { font-size: 20px; font-weight: 650; letter-spacing: -.02em; }
+  .ob-card .sub { color: var(--text-2); font-size: 14px; margin: 6px 0 26px; }
+  .step { display: flex; align-items: center; gap: 12px; text-align: left; padding: 13px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 10px; }
+  .step .num { width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center; font-size: 13px; font-weight: 650; }
+  .step.done .num { background: var(--ok); color: #fff; }
+  .step.done .label { color: var(--text); }
+  .step.active { border-color: var(--accent); background: var(--accent-soft); }
+  .step.active .num { background: var(--accent); color: #fff; }
+  .step.todo .num { background: var(--surface-2); color: var(--text-3); }
+  .step .label { font-size: 14px; font-weight: 550; flex: 1; }
+  .step .hint { font-size: 12.5px; color: var(--text-3); }
+  .progress { height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin: 6px 0 2px; }
+  .progress i { display: block; height: 100%; width: 64%; background: linear-gradient(90deg, var(--accent), #6d8bff); border-radius: 999px; }
+  .cta { width: 100%; margin-top: 22px; height: 44px; border: none; border-radius: var(--radius-sm); background: var(--text); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
+
+  svg { display: block; }
+</style>
+</head>
+<body>
+
+  <div class="page-title">
+    <h1>Meeting Noter — Modern Minimal Redesign</h1>
+    <p>Static mockup. Same features, calmer hierarchy: warm near-white canvas, one cool accent, hairline borders, generous whitespace.</p>
+  </div>
+
+  <!-- ============ MAIN — TRANSCRIPT ============ -->
+  <div class="section-label">Home · Transcript (listening)</div>
+  <div class="window">
+    <div class="titlebar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="t">Meeting Noter</span></div>
+    <div class="app">
+      <!-- sidebar -->
+      <aside class="sidebar">
+        <div class="side-head">
+          <div class="brand">
+            <div class="logo"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4"/></svg></div>
+            <h2>Meeting Noter</h2>
+          </div>
+          <button class="icon-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        </div>
+
+        <div class="capture"><span class="pulse"></span> Stop Capture</div>
+
+        <div class="list-label">Meetings</div>
+        <div class="meetings">
+          <div class="meeting active">
+            <div class="row"><span class="title">Q3 Roadmap Sync</span><span class="rec-tag"><span class="pulse"></span>Rec</span></div>
+            <div class="row"><span class="meta">10:24 · 27/06/26</span><span class="src">Teams</span></div>
+          </div>
+          <div class="meeting">
+            <div class="row"><span class="title">Design Review — Mobile</span></div>
+            <div class="row"><span class="meta">09:10 · 27/06/26</span><span class="src">Meet</span></div>
+          </div>
+          <div class="meeting">
+            <div class="row"><span class="title">1:1 with Alex</span></div>
+            <div class="row"><span class="meta">16:45 · 26/06/26</span><span class="src">Zoom</span></div>
+          </div>
+          <div class="meeting">
+            <div class="row"><span class="title">Sprint Retro</span></div>
+            <div class="row"><span class="meta">14:00 · 25/06/26</span><span class="src">Teams</span></div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- main -->
+      <main class="main">
+        <div class="toolbar">
+          <div class="tabs">
+            <button class="tab active">Transcript</button>
+            <button class="tab">Summary</button>
+            <button class="tab">Diarization</button>
+          </div>
+          <span class="status"><span class="pulse"></span> Listening</span>
+        </div>
+
+        <div class="panel">
+          <div class="msg">
+            <div class="head"><span class="speaker">Sarah</span><span class="ts">00:02</span></div>
+            <p class="body">Thanks everyone for joining. Let's start with where we are on the Q3 roadmap and then talk through the open risks.</p>
+          </div>
+          <div class="msg">
+            <div class="head"><span class="speaker me">You</span><span class="ts">00:11</span></div>
+            <p class="body">Sounds good. The transcription pipeline is shipped and stable — we serialized the CoreML inference last week so the over-release crash is gone.</p>
+          </div>
+          <div class="msg">
+            <div class="head"><span class="speaker">Sarah</span><span class="ts">00:24</span></div>
+            <p class="body">Great. What's the status on diarization quality? Last I heard speaker labels were drifting on longer calls.</p>
+          </div>
+          <div class="msg">
+            <div class="head"><span class="speaker me">You</span><span class="ts">00:31</span></div>
+            <p class="body">Improved. We're clustering on embeddings now and letting users rename speakers inline, which sticks across the session.</p>
+          </div>
+        </div>
+
+        <div class="player">
+          <button class="play"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+          <div class="wave">
+            <span class="on" style="height:30%"></span><span class="on" style="height:55%"></span><span class="on" style="height:80%"></span><span class="on" style="height:45%"></span><span class="on" style="height:65%"></span><span style="height:90%"></span><span style="height:40%"></span><span style="height:70%"></span><span style="height:50%"></span><span style="height:85%"></span><span style="height:35%"></span><span style="height:60%"></span><span style="height:75%"></span><span style="height:45%"></span><span style="height:55%"></span><span style="height:30%"></span><span style="height:68%"></span><span style="height:48%"></span>
+          </div>
+          <span class="time">00:31 / 02:14</span>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ============ MAIN — SUMMARY ============ -->
+  <div class="section-label">Home · Summary (Claude)</div>
+  <div class="window">
+    <div class="titlebar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="t">Meeting Noter</span></div>
+    <div class="app" style="height:560px">
+      <aside class="sidebar">
+        <div class="side-head">
+          <div class="brand">
+            <div class="logo"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4"/></svg></div>
+            <h2>Meeting Noter</h2>
+          </div>
+          <button class="icon-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        </div>
+        <div class="capture" style="border-color:var(--rec);color:var(--rec);background:var(--rec-soft)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4"/></svg> Start Capture</div>
+        <div class="list-label">Meetings</div>
+        <div class="meetings">
+          <div class="meeting active"><div class="row"><span class="title">Design Review — Mobile</span></div><div class="row"><span class="meta">09:10 · 27/06/26</span><span class="src">Meet</span></div></div>
+          <div class="meeting"><div class="row"><span class="title">Q3 Roadmap Sync</span></div><div class="row"><span class="meta">10:24 · 27/06/26</span><span class="src">Teams</span></div></div>
+          <div class="meeting"><div class="row"><span class="title">1:1 with Alex</span></div><div class="row"><span class="meta">16:45 · 26/06/26</span><span class="src">Zoom</span></div></div>
+        </div>
+      </aside>
+      <main class="main">
+        <div class="toolbar">
+          <div class="tabs"><button class="tab">Transcript</button><button class="tab active">Summary</button><button class="tab">Diarization</button></div>
+          <span class="status"><span style="width:8px;height:8px;border-radius:50%;background:var(--border-2)"></span> Idle</span>
+        </div>
+        <div class="panel">
+          <div class="pill-row"><span class="pill active">Original</span><span class="pill">Tiếng Việt</span></div>
+          <div class="prose">
+            <h3>TL;DR</h3>
+            <div class="tldr"><p>Mobile design review aligned on the new navigation; two blocking issues remain before handoff. Final assets due Friday.</p></div>
+            <h3>Key points</h3>
+            <ul>
+              <li>Bottom-tab navigation approved over the hamburger pattern.</li>
+              <li>Color contrast on secondary buttons fails AA — needs darker tone.</li>
+              <li>Empty states still missing for three core screens.</li>
+            </ul>
+            <h3>Decisions</h3>
+            <ul>
+              <li>Ship bottom-tab nav in v1.0.</li>
+              <li>Defer dark mode to the next milestone.</li>
+            </ul>
+            <h3>Action items</h3>
+            <ul>
+              <li class="task">Priya — fix button contrast and re-export tokens (Wed).</li>
+              <li class="task">You — draft empty-state copy for review (Thu).</li>
+              <li class="task">Alex — finalize handoff package (Fri).</li>
+            </ul>
+          </div>
+          <button class="ghost">Regenerate</button>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ============ MAIN — DIARIZATION ============ -->
+  <div class="section-label">Home · Diarization</div>
+  <div class="window">
+    <div class="titlebar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="t">Meeting Noter</span></div>
+    <div class="app" style="height:520px">
+      <aside class="sidebar">
+        <div class="side-head">
+          <div class="brand">
+            <div class="logo"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4"/></svg></div>
+            <h2>Meeting Noter</h2>
+          </div>
+          <button class="icon-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        </div>
+        <div class="capture"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4"/></svg> Start Capture</div>
+        <div class="list-label">Meetings</div>
+        <div class="meetings">
+          <div class="meeting active"><div class="row"><span class="title">1:1 with Alex</span></div><div class="row"><span class="meta">16:45 · 26/06/26</span><span class="src">Zoom</span></div></div>
+          <div class="meeting"><div class="row"><span class="title">Sprint Retro</span></div><div class="row"><span class="meta">14:00 · 25/06/26</span><span class="src">Teams</span></div></div>
+        </div>
+      </aside>
+      <main class="main">
+        <div class="toolbar">
+          <div class="tabs"><button class="tab">Transcript</button><button class="tab">Summary</button><button class="tab active">Diarization</button></div>
+          <span class="status"><span style="width:8px;height:8px;border-radius:50%;background:var(--border-2)"></span> Idle</span>
+        </div>
+        <div class="panel">
+          <div class="seg"><div class="avatar a1">A</div><div><div class="who">Alex <span class="t">16:45:02</span> <svg class="edit" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></div><div class="txt">How are you feeling about the workload this sprint?</div></div></div>
+          <div class="seg"><div class="avatar a2">Y</div><div><div class="who">You <span class="t">16:45:09</span> <svg class="edit" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></div><div class="txt">Manageable. The crash fix freed up time I'd budgeted for support.</div></div></div>
+          <div class="seg"><div class="avatar a1">A</div><div><div class="who">Alex <span class="t">16:45:18</span></div><div class="txt">Good to hear. Let's use the extra room to start on diarization tuning.</div></div></div>
+          <div class="seg"><div class="avatar a3">S</div><div><div class="who">Sarah <span class="t">16:45:30</span></div><div class="txt">Jumping in late — can we also scope the onboarding download progress?</div></div></div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ============ ONBOARDING ============ -->
+  <div class="section-label">Onboarding · Setup gate</div>
+  <div class="onboard">
+    <div class="ob-card">
+      <div class="logo"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4"/></svg></div>
+      <h2>Welcome to Meeting Noter</h2>
+      <p class="sub">A few one-time steps and you're ready to record.</p>
+
+      <div class="step done"><span class="num">✓</span><span class="label">Microphone permission</span><span class="hint">Granted</span></div>
+      <div class="step done"><span class="num">✓</span><span class="label">System audio capture</span><span class="hint">Granted</span></div>
+      <div class="step active">
+        <span class="num">3</span>
+        <div style="flex:1">
+          <span class="label">Downloading speech model</span>
+          <div class="progress"><i></i></div>
+        </div>
+        <span class="hint">412 / 640 MB</span>
+      </div>
+      <div class="step todo"><span class="num">4</span><span class="label">Connect Claude Code (for summaries)</span><span class="hint">Optional</span></div>
+
+      <button class="cta">Continue</button>
+    </div>
+  </div>
+
+</body>
+</html>
