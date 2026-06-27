@@ -38,7 +38,7 @@ export const UpdateBanner = () => {
   };
 
   return (
-    <div className="fixed top-0 inset-x-0 z-50 flex items-center gap-3 px-5 py-2.5 bg-custom-text-highlight text-white text-sm shadow-md">
+    <div className="fixed top-0 inset-x-0 z-50 flex items-center gap-3 px-5 py-2.5 bg-[var(--ds-accent)] text-[var(--ds-on-accent)] text-sm shadow-[var(--ds-shadow)]">
       <Download className="w-4 h-4 shrink-0" />
 
       {phase === "available" ? (
@@ -65,9 +65,9 @@ export const UpdateBanner = () => {
           <span className="flex-1">
             Downloading update… {Math.round(progress * 100)}%
           </span>
-          <div className="w-32 h-1.5 rounded-full bg-white/30 overflow-hidden">
+          <div className="w-32 h-1.5 rounded-full bg-[var(--ds-on-accent)]/30 overflow-hidden">
             <div
-              className="h-full bg-white transition-all"
+              className="h-full bg-[var(--ds-on-accent)] transition-all"
               style={{ width: `${progress * 100}%` }}
             />
           </div>

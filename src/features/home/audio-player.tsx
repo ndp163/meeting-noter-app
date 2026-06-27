@@ -108,7 +108,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
         {audioPath ? (
           <div ref={containerRef} className="w-full h-full" />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-custom-text-secondary text-sm">
+          <div className="w-full h-full flex items-center justify-center text-[var(--ds-text-2)] text-sm">
             No audio available
           </div>
         )}
