@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { Meeting } from "@/types/meeting";
+import { Meeting, MeetingLanguage } from "@/types/meeting";
 
 export const getMeetings = async (): Promise<Meeting[]> => {
   return await invoke<Meeting[]>("get_meetings");
@@ -33,7 +33,9 @@ export const getMeetingAudioPath = async (
   return await invoke<string>("get_meeting_audio_path", { meetingId });
 };
 
-export const createNewMeeting = async (): Promise<Meeting> => {
+export const createNewMeeting = async (
+  language: MeetingLanguage = "en",
+): Promise<Meeting> => {
   const meeting: Meeting = {
     id: crypto.randomUUID(),
     title: "Untitled",
@@ -41,6 +43,7 @@ export const createNewMeeting = async (): Promise<Meeting> => {
     updatedAt: Date.now(),
     duration: 0,
     status: "recording",
+    language,
     transcript: [],
   };
   await saveMeeting(meeting);

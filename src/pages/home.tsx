@@ -62,6 +62,7 @@ export const HomePage = () => {
   const renameSpeaker = useBoundStore.use.renameSpeaker();
   const getCurrentMeeting = useBoundStore.use.getCurrentMeeting();
   const getCapturingMeeting = useBoundStore.use.getCapturingMeeting();
+  const captureLanguage = useBoundStore.use.captureLanguage();
 
   const currentMeeting = getCurrentMeeting();
   const messages = currentMeeting?.transcript || [];
@@ -427,11 +428,11 @@ export const HomePage = () => {
           }
         }
       } else {
-        const newMeeting = await createNewMeeting();
+        const newMeeting = await createNewMeeting(captureLanguage);
         addMeeting(newMeeting);
         setCurrentMeetingId(newMeeting.id);
         setAudioPath(undefined);
-        await startTranscription(newMeeting.id);
+        await startTranscription(newMeeting.id, captureLanguage);
         setIsCapturing(true);
       }
     } catch (error) {

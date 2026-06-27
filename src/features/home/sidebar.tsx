@@ -11,7 +11,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { Meeting } from "@/types/meeting";
 import { useBoundStore } from "@/store";
-import { Brand, CaptureButton, IconButton } from "@/design-system";
+import { Brand, CaptureButton, IconButton, PillToggle } from "@/design-system";
 
 interface SidebarProps {
   meetings: Meeting[];
@@ -38,6 +38,8 @@ export const Sidebar = ({
 }: SidebarProps) => {
   const isSidebarCollapsed = useBoundStore.use.isSidebarCollapsed();
   const toggleSidebar = useBoundStore.use.toggleSidebar();
+  const captureLanguage = useBoundStore.use.captureLanguage();
+  const setCaptureLanguage = useBoundStore.use.setCaptureLanguage();
 
   return (
     <div
@@ -78,6 +80,19 @@ export const Sidebar = ({
           capturing={isCapturing}
           disabled={isCaptureBusy}
           onClick={onToggleCapture}
+        />
+      )}
+
+      {/* Transcription language — locked while a recording is in progress. */}
+      {!isSidebarCollapsed && (
+        <PillToggle
+          className={cn(isCapturing && "pointer-events-none opacity-50")}
+          value={captureLanguage}
+          onChange={(id) => setCaptureLanguage(id as "en" | "ja")}
+          options={[
+            { id: "en", label: "English" },
+            { id: "ja", label: "日本語" },
+          ]}
         />
       )}
 

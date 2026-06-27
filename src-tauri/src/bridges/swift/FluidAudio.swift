@@ -32,7 +32,17 @@ actor FluidAudioBridge {
     private var asrManager: AsrManager?
     private var models: AsrModels?
     private var diarizer: DiarizerManager?
-    private let modelVersion: AsrModelVersion = .v2 // English-only, faster
+    // Selected per session by the requested language (see modelVersion(forLanguage:)).
+    private var modelVersion: AsrModelVersion = .v2
+
+    /// Map a language code to the ASR model. Japanese uses the dedicated tdtJa
+    /// Parakeet model; everything else uses the English-only v2 model.
+    private static func modelVersion(forLanguage language: String?) -> AsrModelVersion {
+        switch language?.lowercased() {
+        case "ja", "jp", "ja-jp": return .tdtJa
+        default: return .v2
+        }
+    }
 
     // VAD per-stream state, keyed by stream ID. Actor-isolated, so no separate
     // queue is needed anymore.
@@ -71,8 +81,9 @@ actor FluidAudioBridge {
 
     // MARK: - Initialization
 
-    func initialize(modelPath: String?) async throws {
-        print("Swift FluidAudio: Starting initialization")
+    func initialize(modelPath: String?, language: String?) async throws {
+        self.modelVersion = Self.modelVersion(forLanguage: language)
+        print("Swift FluidAudio: Starting initialization (modelVersion: \(self.modelVersion))")
 
         // Initialize VAD
         print("Swift FluidAudio: Initializing VAD...")
@@ -84,8 +95,7 @@ actor FluidAudioBridge {
         // Initialize ASR
         print("Swift FluidAudio: Loading Parakeet models...")
         let models = try await AsrModels.downloadAndLoad(version: self.modelVersion)
-        let manager = AsrManager(config: .default)
-        try await manager.initialize(models: models)
+        let manager = AsrManager(config: .default, models: models)
         self.models = models
         self.asrManager = manager
         print("Swift FluidAudio: ASR initialized successfully")
@@ -101,17 +111,24 @@ actor FluidAudioBridge {
 
         // Transcription input arrives as 16-bit PCM bytes.
         let audioArray = pcm16ToFloat(audioData)
-        let result = try await runSerialized { try await asrManager.transcribe(audioArray) }
+        // Each call transcribes one complete VAD segment independently, so a
+        // fresh decoder state per call matches the old stateless behaviour.
+        let result = try await runSerialized {
+            var decoderState = try TdtDecoderState()
+            return try await asrManager.transcribe(audioArray, decoderState: &decoderState)
+        }
         return result.text
     }
 
-    // Lazily load the ASR models. Offline diarization can run when no live
-    // recording session has initialized them yet.
-    private func ensureAsrLoaded() async throws {
-        if asrManager != nil { return }
-        let models = try await AsrModels.downloadAndLoad(version: self.modelVersion)
-        let manager = AsrManager(config: .default)
-        try await manager.initialize(models: models)
+    // Lazily load the ASR models for `version`. Offline diarization can run when
+    // no live recording session has initialized them yet, and may need a
+    // different language model than the one currently loaded, so reload on a
+    // version mismatch.
+    private func ensureAsrLoaded(version: AsrModelVersion) async throws {
+        if asrManager != nil && self.modelVersion == version { return }
+        self.modelVersion = version
+        let models = try await AsrModels.downloadAndLoad(version: version)
+        let manager = AsrManager(config: .default, models: models)
         self.models = models
         self.asrManager = manager
     }
@@ -136,15 +153,18 @@ actor FluidAudioBridge {
     /// the speaker segment their timing falls in (used for the remote track).
     /// `diarize == false`: single speaker, split into segments on silence gaps
     /// (used for the known "You" mic track). Returns segments as JSON.
-    func diarizeFile(path: String, diarize: Bool) async throws -> String {
-        try await ensureAsrLoaded()
+    func diarizeFile(path: String, diarize: Bool, language: String?) async throws -> String {
+        try await ensureAsrLoaded(version: Self.modelVersion(forLanguage: language))
         guard let asrManager = asrManager else {
             throw NSError(domain: "FluidAudio", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "ASR not initialized"])
         }
 
         let samples = try AudioConverter().resampleAudioFile(path: path)
-        let asr = try await runSerialized { try await asrManager.transcribe(samples) }
+        let asr = try await runSerialized {
+            var decoderState = try TdtDecoderState()
+            return try await asrManager.transcribe(samples, decoderState: &decoderState)
+        }
         let timings = asr.tokenTimings ?? []
 
         let segments: [DiarizedSegment]
@@ -312,15 +332,17 @@ actor FluidAudioBridge {
 @_cdecl("fluid_audio_init")
 public func fluid_audio_init(
     modelPath: UnsafePointer<CChar>?,
+    language: UnsafePointer<CChar>?,
     callback: FluidAudioCallback?,
     context: UnsafeMutableRawPointer?
 ) {
     let model = modelPath != nil ? String(cString: modelPath!) : nil
+    let lang = language != nil ? String(cString: language!) : nil
 
-    print("Swift: Initializing FluidAudio")
+    print("Swift: Initializing FluidAudio (language: \(lang ?? "en"))")
     Task {
         do {
-            try await FluidAudioBridge.shared.initialize(modelPath: model)
+            try await FluidAudioBridge.shared.initialize(modelPath: model, language: lang)
             guard let callback = callback else {
                 print("Swift: No callback provided")
                 return
@@ -367,15 +389,17 @@ public func fluid_audio_transcribe(
 public func fluid_audio_diarize_file(
     path: UnsafePointer<CChar>?,
     diarize: Bool,
+    language: UnsafePointer<CChar>?,
     callback: FluidAudioCallback?,
     context: UnsafeMutableRawPointer?
 ) {
     guard let path = path, let callback = callback else { return }
     let filePath = String(cString: path)
+    let lang = language != nil ? String(cString: language!) : nil
 
     Task {
         do {
-            let json = try await FluidAudioBridge.shared.diarizeFile(path: filePath, diarize: diarize)
+            let json = try await FluidAudioBridge.shared.diarizeFile(path: filePath, diarize: diarize, language: lang)
             let jsonStr = strdup(json)
             callback(jsonStr, nil, context)
             free(jsonStr)

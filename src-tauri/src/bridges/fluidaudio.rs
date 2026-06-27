@@ -73,6 +73,7 @@ fn get_ffi_lock() -> &'static Mutex<()> {
 extern "C" {
     fn fluid_audio_init(
         model_path: *const c_char,
+        language: *const c_char,
         callback: FluidAudioCallback,
         context: *mut c_void,
     );
@@ -87,6 +88,7 @@ extern "C" {
     fn fluid_audio_diarize_file(
         path: *const c_char,
         diarize: bool,
+        language: *const c_char,
         callback: FluidAudioCallback,
         context: *mut c_void,
     );
@@ -127,16 +129,28 @@ impl FluidAudio {
     /// speaker. `diarize` clusters multiple speakers (remote track); when false
     /// the file is treated as a single known speaker (mic track). Returns the
     /// segments as a JSON string. Models load lazily inside the Swift bridge.
-    pub async fn diarize_file(&self, path: &str, diarize: bool) -> Result<String, String> {
+    pub async fn diarize_file(
+        &self,
+        path: &str,
+        diarize: bool,
+        language: &str,
+    ) -> Result<String, String> {
         let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
 
         let ctx = CallbackContext::new(tx);
         let context = Box::into_raw(Box::new(ctx)) as *mut c_void;
 
         let c_path = CString::new(path).map_err(|e| format!("Invalid path: {}", e))?;
+        let c_lang = CString::new(language).map_err(|e| format!("Invalid language: {}", e))?;
 
         unsafe {
-            fluid_audio_diarize_file(c_path.as_ptr(), diarize, string_result_callback, context);
+            fluid_audio_diarize_file(
+                c_path.as_ptr(),
+                diarize,
+                c_lang.as_ptr(),
+                string_result_callback,
+                context,
+            );
         }
 
         rx.await
@@ -213,7 +227,7 @@ unsafe extern "C" fn string_result_callback(
 
 #[async_trait]
 impl SpeechRecognizer for FluidAudio {
-    async fn initialize(&self) -> Result<(), String> {
+    async fn initialize(&self, language: &str) -> Result<(), String> {
         let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
 
         let ctx = CallbackContext::new(tx);
@@ -268,9 +282,11 @@ impl SpeechRecognizer for FluidAudio {
             // ctx will be dropped here, cleaning up safely
         }
 
-        // FluidAudio bundles its own model; no path is passed.
+        // FluidAudio bundles its own model; no path is passed. The language
+        // selects the ASR model (Japanese -> tdtJa, otherwise English v2).
+        let c_lang = CString::new(language).map_err(|e| format!("Invalid language: {}", e))?;
         unsafe {
-            fluid_audio_init(std::ptr::null(), init_callback, context);
+            fluid_audio_init(std::ptr::null(), c_lang.as_ptr(), init_callback, context);
         }
 
         let result = rx

@@ -18,8 +18,9 @@ use std::sync::Arc;
 /// Turns audio samples into text.
 #[async_trait]
 pub trait SpeechRecognizer: Send + Sync {
-    /// Load models. Must be called once before [`transcribe`](Self::transcribe).
-    async fn initialize(&self) -> Result<(), String>;
+    /// Load models for `language` (e.g. `"en"`, `"ja"`). Must be called once
+    /// before [`transcribe`](Self::transcribe).
+    async fn initialize(&self, language: &str) -> Result<(), String>;
 
     /// Transcribe a chunk of 16kHz mono f32 samples.
     async fn transcribe(&self, audio: &[f32]) -> Result<String, String>;

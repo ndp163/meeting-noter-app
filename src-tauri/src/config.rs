@@ -16,7 +16,9 @@ pub struct AudioConfig {
     /// Transcription engine to use.
     pub engine: EngineType,
 
-    /// Maximum time to wait for engine initialization (seconds).
+    /// Maximum time to wait for engine initialization (seconds). Generous
+    /// because the first use of a language downloads its model (~600MB for the
+    /// Japanese model), which can take several minutes on a cold cache.
     pub init_timeout_secs: u64,
 
     /// Capture chunk size in samples handed to each audio stream.
@@ -30,7 +32,7 @@ impl Default for AudioConfig {
     fn default() -> Self {
         Self {
             engine: EngineType::default(),
-            init_timeout_secs: 120,
+            init_timeout_secs: 600,
             chunk_size: 8000, // 0.5s at 16kHz
             channel_buffer_size: 30,
         }
