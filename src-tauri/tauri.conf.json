@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "noter",
+  "productName": "Meeting Noter",
   "version": "0.9.1",
   "identifier": "com.phucnguyendinh.noter",
   "build": {
@@ -13,7 +13,7 @@
     "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "noter",
+        "title": "Meeting Noter",
         "maximized": true
       }
     ],
