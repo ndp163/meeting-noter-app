@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Pencil } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Avatar, Button } from "@/design-system";
 import type { DiarizedSegment } from "@/types/meeting";
 
 interface DiarizationViewProps {
@@ -42,14 +42,11 @@ export const DiarizationView = ({
 
   if (error) {
     return (
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3 items-start">
         <p className="text-sm text-custom-red">{error}</p>
-        <button
-          onClick={onRun}
-          className="self-start rounded-full border border-custom-text-primary px-4 py-1.5 text-sm text-custom-text-primary hover:bg-custom-bg-secondary"
-        >
+        <Button variant="ghost" pill onClick={onRun}>
           Try again
-        </button>
+        </Button>
       </div>
     );
   }
@@ -63,17 +60,14 @@ export const DiarizationView = ({
       );
     }
     return (
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3 items-start">
         <p className="text-sm text-custom-text-secondary">
           Identify who spoke when. Transcribes the whole recording and groups it
           by speaker. You can rename each speaker afterwards.
         </p>
-        <button
-          onClick={onRun}
-          className="self-start rounded-full border border-custom-text-primary px-4 py-1.5 text-sm text-custom-text-primary hover:bg-custom-bg-secondary"
-        >
+        <Button variant="ghost" pill onClick={onRun}>
           Identify speakers
-        </button>
+        </Button>
       </div>
     );
   }
@@ -87,13 +81,21 @@ export const DiarizationView = ({
   };
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col">
       {segments.map((segment, index) => {
         const isYou = segment.speakerId === "you";
+        const divided = index < segments.length - 1;
         return (
-          <div key={`${segment.speakerId}-${index}`} className="flex flex-col gap-2.5">
-            <div className="flex gap-2.5 items-center">
-              <div className="flex items-center justify-center border-b border-custom-primary pb-0.5">
+          <div
+            key={`${segment.speakerId}-${index}`}
+            className={`ds-seg${divided ? " ds-seg--divided" : ""}`}
+          >
+            <Avatar
+              name={segment.label}
+              color={isYou ? "var(--ds-accent)" : undefined}
+            />
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div className="ds-seg__who">
                 {editing === index ? (
                   <input
                     autoFocus
@@ -104,38 +106,36 @@ export const DiarizationView = ({
                       if (e.key === "Enter") commitEdit(segment.speakerId);
                       if (e.key === "Escape") setEditing(null);
                     }}
-                    className="text-base bg-transparent outline-none border-b border-custom-text-primary w-28"
+                    className="bg-transparent outline-none border-b w-32"
+                    style={{ borderColor: "var(--ds-border-2)", color: "var(--ds-text)" }}
                   />
                 ) : (
-                  <button
-                    onClick={() => {
-                      setEditing(index);
-                      setDraft(segment.label);
-                    }}
-                    title="Click to rename"
-                    className={cn(
-                      "group flex items-center gap-1.5 text-base hover:underline",
-                      isYou
-                        ? "text-custom-text-highlight"
-                        : "text-custom-text-primary"
-                    )}
-                  >
+                  <>
                     {segment.label}
-                    <Pencil className="w-3.5 h-3.5 text-custom-text-secondary opacity-0 group-hover:opacity-100" />
-                  </button>
+                    <span className="ds-seg__time">{formatTime(segment.start)}</span>
+                    <span
+                      className="ds-seg__edit"
+                      title="Rename speaker"
+                      onClick={() => {
+                        setEditing(index);
+                        setDraft(segment.label);
+                      }}
+                    >
+                      <Pencil size={13} />
+                    </span>
+                    <button
+                      onClick={() => onSeek(segment.start)}
+                      title="Jump to this moment"
+                      className="ds-seg__time hover:underline"
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                    >
+                      ▸ play
+                    </button>
+                  </>
                 )}
               </div>
-              <button
-                onClick={() => onSeek(segment.start)}
-                title="Jump to this moment"
-                className="text-base text-custom-text-secondary tabular-nums hover:text-custom-primary hover:underline"
-              >
-                {formatTime(segment.start)}
-              </button>
+              <div className="ds-seg__txt">{segment.text}</div>
             </div>
-            <p className="text-base text-custom-text-primary whitespace-pre-wrap">
-              {segment.text}
-            </p>
           </div>
         );
       })}

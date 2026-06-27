@@ -27,13 +27,13 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
   const { wavesurfer, isReady, isPlaying } = useWavesurfer({
     container: containerRef,
     url: audioPath ? convertFileSrc(audioPath) : undefined,
-    waveColor: "#404a4c33",
-    progressColor: "#2a4b8b",
-    cursorColor: "#2a4b8b",
+    waveColor: "#d7c8b0",
+    progressColor: "#b5552f",
+    cursorColor: "#b5552f",
     barWidth: 2,
     barGap: 1,
     barRadius: 2,
-    height: 87,
+    height: 56,
     normalize: true,
     hideScrollbar: true,
   });
@@ -89,34 +89,22 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
   };
 
   return (
-    <div className="flex gap-2.5 items-center w-full">
-      {/* Play/Pause Controls */}
-      <div className="flex gap-3 items-center justify-center p-[13px] w-[200px]">
-        <button
-          onClick={handlePlayPause}
-          disabled={!isReady || !audioPath}
-          className="w-5 h-5 flex items-center justify-center hover:scale-110 transition-transform disabled:opacity-30 disabled:cursor-not-allowed"
-        >
-          {isPlaying ? (
-            <Pause
-              className="w-full h-full text-custom-text-primary"
-              fill="#404a4c"
-            />
-          ) : (
-            <Play
-              className="w-full h-full text-custom-text-primary"
-              fill="#404a4c"
-            />
-          )}
-        </button>
-
-        <p className="text-base text-custom-text-primary whitespace-nowrap ml-2">
-          {currentTime} / {totalTime}
-        </p>
-      </div>
+    <div className="ds-player">
+      <button
+        onClick={handlePlayPause}
+        disabled={!isReady || !audioPath}
+        aria-label={isPlaying ? "Pause" : "Play"}
+        className="ds-player__play disabled:opacity-30 disabled:cursor-not-allowed"
+      >
+        {isPlaying ? (
+          <Pause size={16} fill="currentColor" />
+        ) : (
+          <Play size={16} fill="currentColor" />
+        )}
+      </button>
 
       {/* Waveform */}
-      <div className="h-[87px] flex-1 rounded-lg overflow-hidden">
+      <div className="h-[56px] flex-1 overflow-hidden">
         {audioPath ? (
           <div ref={containerRef} className="w-full h-full" />
         ) : (
@@ -125,6 +113,10 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
           </div>
         )}
       </div>
+
+      <span className="ds-player__time">
+        {currentTime} / {totalTime}
+      </span>
     </div>
   );
   },
