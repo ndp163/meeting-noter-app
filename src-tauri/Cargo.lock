@@ -2466,7 +2466,7 @@ checksum = "72ef4a56884ca558e5ddb05a1d1e7e1bfd9a68d9ed024c21704cc98872dae1bb"
 
 [[package]]
 name = "noter"
-version = "0.1.1"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2488,7 +2488,6 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-process",
  "tauri-plugin-updater",
- "thread",
  "tokio",
  "tokio-util",
  "tracing",
@@ -4825,12 +4824,6 @@ dependencies = [
  "quote",
  "syn 2.0.110",
 ]
-
-[[package]]
-name = "thread"
-version = "0.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f06beb703bd1c46f3cc8afdf4e3d0f932ec413289204f9f74715023da8acb5f"
 
 [[package]]
 name = "thread_local"
