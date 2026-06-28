@@ -1,15 +1,20 @@
 //! Configuration for audio recording and transcription.
 
-/// Base URL of the self-hosted model bucket. A file URL is `{BASE}/{key}` where
+/// Base URL of the self-hosted model CDN. A file URL is `{BASE}/{key}` where
 /// `key` is a manifest entry (already version-prefixed, e.g.
 /// `v1/parakeet-ja/...`). No trailing slash.
-pub const MODELS_BASE_URL: &str = "https://meeting-noter.s3.ap-southeast-1.amazonaws.com";
+///
+/// Served via CloudFront in front of the private S3 bucket (`meeting-noter`,
+/// ap-southeast-1) — origin access is locked to CloudFront (OAC), so the raw
+/// S3 URL returns 403. CloudFront caches + the 1 TB/mo free tier keeps egress
+/// cheap. Direct S3 URLs no longer work; always go through the CDN.
+pub const MODELS_BASE_URL: &str = "https://d17sbkyjhl5fws.cloudfront.net";
 
 /// URL of the manifest listing every model file (path + size + sha256), grouped
 /// by language. Bump the `v1` prefix here and in the bucket to ship new weights
 /// without breaking already-installed clients.
 pub const MODELS_MANIFEST_URL: &str =
-    "https://meeting-noter.s3.ap-southeast-1.amazonaws.com/v1/manifest.json";
+    "https://d17sbkyjhl5fws.cloudfront.net/v1/manifest.json";
 
 /// Which transcription engine to use.
 ///
