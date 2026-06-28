@@ -174,17 +174,6 @@ export const HomePage = () => {
   };
 
   // On opening the Diarization tab, run it once if there's no cached result.
-  useEffect(() => {
-    if (
-      activeTab === "diarization" &&
-      canDiarize &&
-      !isDiarizing &&
-      !currentMeeting?.diarization
-    ) {
-      void handleRunDiarization();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, currentMeetingId]);
 
   // Show a "preparing model" state while the ASR engine loads on first record.
   useEffect(() => {
