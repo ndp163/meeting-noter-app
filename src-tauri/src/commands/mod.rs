@@ -9,7 +9,9 @@ pub use detection::{meeting_detection_status, start_recording_from_alert, dismis
 
 pub use diarization::diarize_meeting;
 
-pub use setup::{delete_language, download_language, installed_languages, models_ready};
+pub use setup::{
+    delete_language, download_language, installed_languages, models_manifest_url, models_ready,
+};
 
 pub use summary::{claude_available, generate_title, summarize_meeting, translate_summary};
 
