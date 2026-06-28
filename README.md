@@ -75,7 +75,7 @@ Contributor and architecture rules live in [CLAUDE.md](CLAUDE.md) and the nested
 
 ## License
 
-<!-- TODO: set before going public — see docs/MONETIZATION.md.
-     Open-core: this core is permissive (MIT/Apache); paid features ship
-     separately. Decide and commit the LICENSE file BEFORE the first public push. -->
-_TBD — see [docs/MONETIZATION.md](docs/MONETIZATION.md)._
+Licensed under the **GNU Affero General Public License v3.0** — see
+[LICENSE](LICENSE). You may use, study, modify, and share it; if you run a
+modified version as a network service or distribute it, you must release your
+source under the same terms.
