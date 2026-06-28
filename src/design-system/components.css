@@ -205,6 +205,8 @@
 /* ---------- Brand mark ---------- */
 .ds-brand { display: inline-flex; align-items: center; gap: 9px; }
 .ds-brand__logo { width: 28px; height: 28px; border-radius: 8px; background: linear-gradient(135deg, var(--ds-accent), var(--ds-accent-2)); display: grid; place-items: center; color: #fff; box-shadow: var(--ds-shadow); flex-shrink: 0; }
+.ds-brand__logo--mark { background: none; overflow: hidden; }
+.ds-brand__logo--mark svg { display: block; width: 100%; height: 100%; }
 .ds-brand__name { font-size: var(--ds-text-lg); font-weight: 650; letter-spacing: -.01em; color: var(--ds-text); }
 
 .ds-spin { animation: ds-spin 1s linear infinite; }
