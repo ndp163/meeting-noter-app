@@ -114,8 +114,16 @@
 .ds-src { font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 6px; background: var(--ds-surface-2); color: var(--ds-text-2); }
 
 /* ---------- Message (transcript) ---------- */
-.ds-msg { padding-bottom: 18px; }
+.ds-msg { padding-bottom: 6px; transition: background .15s ease; }
 .ds-msg--divided { border-bottom: 1px solid var(--ds-border); }
+.ds-msg--active {
+  background: var(--ds-surface-2);
+  box-shadow: inset 2px 0 0 0 var(--ds-accent);
+  border-radius: var(--ds-radius-sm);
+  margin: -8px -12px 0;
+  padding: 8px 12px 06px;
+}
+.ds-msg__body--seekable { cursor: pointer; }
 .ds-msg__head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .ds-msg__speaker { font-size: var(--ds-text-md); font-weight: 650; color: var(--ds-text); }
 .ds-msg__speaker--me { color: var(--ds-accent); }

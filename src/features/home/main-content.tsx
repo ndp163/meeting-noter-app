@@ -1,4 +1,4 @@
-import { Ref, useRef } from "react";
+import { Ref, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Tabs, StatusDot } from "@/design-system";
 import { Message } from "@/features/home/message";
@@ -65,6 +65,24 @@ export const MainContent = ({
   onTranslateSummary,
 }: MainContentProps) => {
   const playerRef = useRef<AudioPlayerHandle>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  // Map playback position → the last message that has started by then.
+  const handleTimeUpdate = (seconds: number) => {
+    let id: string | null = null;
+    for (const m of messages) {
+      if (m.audioOffset !== undefined && m.audioOffset <= seconds) id = m.id;
+    }
+    setActiveId((prev) => (prev === id ? prev : id));
+  };
+
+  // Keep the playing line in view as audio advances.
+  useEffect(() => {
+    if (!activeId) return;
+    const el = document.querySelector(`[data-msg-id="${CSS.escape(activeId)}"]`);
+    el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [activeId]);
+
   return (
     <div className="flex flex-col gap-2.5 flex-1 p-5 overflow-hidden">
       {/* Header with Tabs */}
@@ -101,24 +119,26 @@ export const MainContent = ({
         <div className="flex flex-col gap-5">
           {activeTab === "transcript" ? (
             messages.length > 0 ? (
-              <>
+              <div className="flex flex-col gap-2">
                 {messages.map((message) => (
-                  <Message
-                    key={message.id}
-                    label={message.label}
-                    timestamp={message.timestamp}
-                    content={message.content}
-                    isUser={message.source === "mic"}
-                    onSeek={
-                      audioPath && message.audioOffset !== undefined
-                        ? () => playerRef.current?.seek(message.audioOffset!)
-                        : undefined
-                    }
-                  />
+                  <div key={message.id} data-msg-id={message.id}>
+                    <Message
+                      label={message.label}
+                      timestamp={message.timestamp}
+                      content={message.content}
+                      isUser={message.source === "mic"}
+                      active={message.id === activeId}
+                      onSeek={
+                        audioPath && message.audioOffset !== undefined
+                          ? () => playerRef.current?.seek(message.audioOffset!)
+                          : undefined
+                      }
+                    />
+                  </div>
                 ))}
                 {/* Invisible element to scroll to */}
                 <div ref={messagesEndRef} />
-              </>
+              </div>
             ) : isPreparingModel ? (
               <div className="flex flex-col items-center justify-center gap-4 py-16 text-center">
                 <div className="relative flex items-center justify-center">
@@ -177,7 +197,11 @@ export const MainContent = ({
       </div>
 
       {/* Audio Player */}
-      <AudioPlayer ref={playerRef} audioPath={audioPath} />
+      <AudioPlayer
+        ref={playerRef}
+        audioPath={audioPath}
+        onTimeUpdate={handleTimeUpdate}
+      />
     </div>
   );
 };
