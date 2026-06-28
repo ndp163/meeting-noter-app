@@ -1,5 +1,9 @@
 # Meeting Noter
 
+[![Downloads](https://img.shields.io/github/downloads/ndp163/meeting-noter-releases/total?label=downloads&color=blue)](https://github.com/ndp163/meeting-noter-releases/releases)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)-lightgrey)
+
 **Private, on-device meeting transcription for macOS.** Live transcript of any
 meeting — mic + system audio — running 100% on your Mac. No cloud, no account,
 no data ever leaves the machine.
