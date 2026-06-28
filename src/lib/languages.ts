@@ -15,8 +15,8 @@ export interface LanguageInfo {
 /** All supported languages, in display order. Keep in sync with the Rust
  *  `MeetingLanguage` enum and the ASR model versions (en → v2, ja → tdtJa). */
 export const LANGUAGES: LanguageInfo[] = [
-  { id: "en", label: "English", native: "English", approxSize: "~450 MB" },
-  { id: "ja", label: "Japanese", native: "日本語", approxSize: "~600 MB" },
+  { id: "en", label: "English", native: "English", approxSize: "Estimating" },
+  { id: "ja", label: "Japanese", native: "日本語", approxSize: "Estimating" },
 ];
 
 export const languageInfo = (id: MeetingLanguage): LanguageInfo =>
