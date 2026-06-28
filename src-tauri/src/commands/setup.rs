@@ -28,6 +28,13 @@ fn emit_progress(app: &AppHandle, language: MeetingLanguage, fraction: f64) {
     let _ = app.emit("setup://progress", ProgressEvent { language, fraction });
 }
 
+/// Manifest URL for the self-hosted model bucket. Single source of truth so the
+/// frontend never hardcodes (and drifts from) the version.
+#[command]
+pub fn models_manifest_url() -> &'static str {
+    crate::config::MODELS_MANIFEST_URL
+}
+
 /// Whether at least one language is installed, so onboarding can be skipped.
 #[command]
 pub fn models_ready() -> bool {

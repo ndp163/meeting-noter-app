@@ -273,7 +273,7 @@ const MeetingCard = ({
             </p>
             <button
               onClick={startEditing}
-              className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[var(--ds-surface-2)] shrink-0"
+              className="opacity-0 group-hover:opacity-100 p-1 rounded shrink-0 transition-colors hover:bg-[var(--ds-border-2)]"
               title="Rename meeting"
             >
               <Pencil className="w-3.5 h-3.5 text-[var(--ds-text-2)]" />
@@ -292,7 +292,7 @@ const MeetingCard = ({
         {meeting.status !== "recording" && (
           <button
             onClick={handleDelete}
-            className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[var(--ds-rec-soft)]"
+            className="opacity-0 group-hover:opacity-100 p-1 rounded shrink-0 transition-colors hover:bg-[var(--ds-border-2)]"
             title="Delete meeting"
           >
             <Trash2 className="w-4 h-4 text-[var(--ds-rec)]" />

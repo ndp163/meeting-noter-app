@@ -1,5 +1,16 @@
 //! Configuration for audio recording and transcription.
 
+/// Base URL of the self-hosted model bucket. A file URL is `{BASE}/{key}` where
+/// `key` is a manifest entry (already version-prefixed, e.g.
+/// `v1/parakeet-ja/...`). No trailing slash.
+pub const MODELS_BASE_URL: &str = "https://meeting-noter.s3.ap-southeast-1.amazonaws.com";
+
+/// URL of the manifest listing every model file (path + size + sha256), grouped
+/// by language. Bump the `v1` prefix here and in the bucket to ship new weights
+/// without breaking already-installed clients.
+pub const MODELS_MANIFEST_URL: &str =
+    "https://meeting-noter.s3.ap-southeast-1.amazonaws.com/v1/manifest.json";
+
 /// Which transcription engine to use.
 ///
 /// Add an arm here and a case in [`crate::bridges::create_transcriber`] to

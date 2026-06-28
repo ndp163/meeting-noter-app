@@ -1,29 +1,20 @@
-import { useEffect, useState } from "react";
 import { ProgressBar } from "@/design-system";
 
 /**
- * Download activity indicator. FluidAudio downloads the large model weight as a
- * single file with no per-byte progress (and bounces across phases), so a
- * percentage bar reads as stuck or jumpy. Instead we show a continuous
- * indeterminate bar plus an elapsed timer — honest "still working" feedback
- * through the multi-minute download. Mount only while a download is in flight;
- * the timer starts from zero on mount.
+ * Determinate download progress. The self-hosted S3 downloader resolves the
+ * total byte size up-front (HEAD on every file) and reports byte-accurate
+ * fractions, so we show a real percentage bar. Before the first byte lands
+ * (size-resolution phase) `value` is 0/undefined — fall back to an indeterminate
+ * bar so it never looks stuck at 0%.
  */
-export const DownloadIndicator = () => {
-  const [seconds, setSeconds] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setSeconds((s) => s + 1), 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  const mm = String(Math.floor(seconds / 60)).padStart(2, "0");
-  const ss = String(seconds % 60).padStart(2, "0");
-
+export const DownloadIndicator = ({ value }: { value?: number }) => {
+  const known = typeof value === "number" && value > 0;
+  const pct = Math.round((value ?? 0) * 100);
   return (
     <div className="flex flex-col gap-1 mt-1.5">
-      <ProgressBar indeterminate />
+      <ProgressBar value={value ?? 0} indeterminate={!known} />
       <span className="text-xs tabular-nums self-end text-[var(--ds-text-3)]">
-        Downloading… {mm}:{ss}
+        {known ? `${pct}%` : "Starting…"}
       </span>
     </div>
   );
