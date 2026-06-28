@@ -11,6 +11,8 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 
 interface AudioPlayerProps {
   audioPath?: string;
+  /** Fires on every playback tick with the absolute position (seconds). */
+  onTimeUpdate?: (seconds: number) => void;
 }
 
 export interface AudioPlayerHandle {
@@ -19,10 +21,13 @@ export interface AudioPlayerHandle {
 }
 
 export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
-  ({ audioPath }, ref) => {
+  ({ audioPath, onTimeUpdate }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentTime, setCurrentTime] = useState("00:00");
   const [totalTime, setTotalTime] = useState("00:00");
+  // Keep the latest callback in a ref so the timeupdate subscription stays stable.
+  const onTimeUpdateRef = useRef(onTimeUpdate);
+  onTimeUpdateRef.current = onTimeUpdate;
 
   const { wavesurfer, isReady, isPlaying } = useWavesurfer({
     container: containerRef,
@@ -60,6 +65,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
       }),
       wavesurfer.on("timeupdate", (time) => {
         setCurrentTime(formatTime(time));
+        onTimeUpdateRef.current?.(time);
       }),
     ];
 
