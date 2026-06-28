@@ -6,12 +6,29 @@ export const getMeetings = async (): Promise<Meeting[]> => {
 };
 
 // Meetings still marked "recording" on load are orphans from a session that
-// never finished (app crashed/closed mid-recording). Delete them and return
-// the clean list.
+// never finished (app crashed/closed mid-recording, or a stale save clobbered
+// the status). They may still hold a real transcript + audio on disk, so never
+// delete blindly: recover any orphan that has data (flip it to "completed"),
+// and only discard the truly empty ones (no transcript, no audio).
 export const loadMeetings = async (): Promise<Meeting[]> => {
   const meetings = await getMeetings();
   const orphans = meetings.filter((m) => m.status === "recording");
-  await Promise.all(orphans.map((m) => deleteMeeting(m.id)));
+
+  await Promise.all(
+    orphans.map(async (m) => {
+      const hasTranscript = m.transcript.length > 0;
+      const hasAudio = await getMeetingAudioPath(m.id)
+        .then(() => true)
+        .catch(() => false);
+      if (hasTranscript || hasAudio) {
+        m.status = "completed";
+        await saveMeeting(m);
+      } else {
+        await deleteMeeting(m.id);
+      }
+    }),
+  );
+
   return meetings.filter((m) => m.status !== "recording");
 };
 
