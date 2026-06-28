@@ -476,37 +476,220 @@ private struct ProgressSink: @unchecked Sendable {
     func report(_ fraction: Double) { callback?(fraction, context) }
 }
 
-// Download the ASR model for `language` plus the shared diarizer (only if
-// missing), reporting real byte-weighted progress 0.0–1.0. FluidAudio downloads
-// each file to a temp path and moves it into the cache dir only on completion,
-// so polling dir size stalls then jumps — its `progressHandler` is the only
-// honest source. ASR is the bulk → 0.0–0.9; diarizer → 0.9–1.0 (instant when
-// already present from another language).
+// MARK: - Self-hosted model download (S3)
+//
+// One manifest lists every model file (key, size, sha256) grouped by language.
+// File URL = `{baseURL}/{key}`; the key is version-prefixed (e.g.
+// `v1/parakeet-ja/...`) and maps 1:1 onto FluidAudio's on-disk cache layout:
+// stripping the leading version component yields the path under the Models root.
+// We sum the bytes for the requested language up-front, so progress is exact.
+
+// Keys-only manifest: file sizes come from each object's `Content-Length` at
+// download time (HEAD), so the list never goes stale when weights change.
+private struct ModelManifest: Decodable {
+    let version: String
+    let languages: [String: [String]]
+    let files: [String]
+}
+
+private enum DownloadError: LocalizedError {
+    case noFilesForLanguage(String)
+    case badURL(String)
+    case httpStatus(String, Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .noFilesForLanguage(let l): return "No model files listed for language \(l)"
+        case .badURL(let s): return "Invalid model URL: \(s)"
+        case .httpStatus(let key, let code): return "Download failed (HTTP \(code)) for \(key)"
+        }
+    }
+}
+
+// Root of FluidAudio's model cache (`.../Application Support/FluidAudio/Models`),
+// derived from any repo's cache dir so we never hardcode the path.
+private func fluidModelsRoot() -> URL {
+    AsrModels.defaultCacheDirectory(for: .v2).deletingLastPathComponent()
+}
+
+// Drop the leading version component of a manifest key to get the path relative
+// to the Models root (e.g. `v1/parakeet-ja/x` -> `parakeet-ja/x`).
+private func relativePath(forKey key: String) -> String {
+    var parts = key.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+    if !parts.isEmpty { parts.removeFirst() }
+    return parts.joined(separator: "/")
+}
+
+// Streams one file into `dest` via a download task, forwarding byte deltas. Moves
+// the completed temp file into place (creating parent dirs) atomically.
+private final class FileDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private let dest: URL
+    private let onDelta: (Int64) -> Void
+    private var lastWritten: Int64 = 0
+    private var result: Result<Void, Error>?
+    private var continuation: CheckedContinuation<Void, Error>?
+
+    init(dest: URL, onDelta: @escaping (Int64) -> Void) {
+        self.dest = dest
+        self.onDelta = onDelta
+    }
+
+    func run(url: URL) async throws {
+        let config = URLSessionConfiguration.default
+        config.waitsForConnectivity = true
+        config.timeoutIntervalForResource = 3600
+        let session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            self.continuation = cont
+            session.downloadTask(with: url).resume()
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession, downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        onDelta(totalBytesWritten - lastWritten)
+        lastWritten = totalBytesWritten
+    }
+
+    func urlSession(
+        _ session: URLSession, downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {
+        if let http = downloadTask.response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            result = .failure(DownloadError.httpStatus(dest.lastPathComponent, http.statusCode))
+            return
+        }
+        let fm = FileManager.default
+        do {
+            try fm.createDirectory(
+                at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+            try fm.moveItem(at: location, to: dest)
+            result = .success(())
+        } catch {
+            result = .failure(error)
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard let cont = continuation else { return }
+        continuation = nil
+        if let error = error {
+            cont.resume(throwing: error)
+        } else {
+            cont.resume(with: result ?? .success(()))
+        }
+    }
+}
+
+// Download every model file the manifest lists for `lang` into FluidAudio's
+// cache, reporting byte-accurate progress 0.0–1.0. Files already on disk with a
+// matching size are skipped, so re-running resumes cheaply.
+private func downloadLanguageFromS3(
+    lang: String, baseURL: String, manifestURL: String, report: @escaping (Double) -> Void
+) async throws {
+    guard let mURL = URL(string: manifestURL) else { throw DownloadError.badURL(manifestURL) }
+    let (data, response) = try await URLSession.shared.data(from: mURL)
+    if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+        throw DownloadError.httpStatus("manifest.json", http.statusCode)
+    }
+    let manifest = try JSONDecoder().decode(ModelManifest.self, from: data)
+
+    // Repos this language needs (ASR + shared VAD + diarizer), de-duped.
+    let repos = Set(manifest.languages[lang] ?? [])
+    let keys = manifest.files.filter { key in
+        guard let repo = key.split(separator: "/").dropFirst().first else { return false }
+        return repos.contains(String(repo))
+    }
+    guard !keys.isEmpty else { throw DownloadError.noFilesForLanguage(lang) }
+
+    // Resolve each object's size via HEAD (concurrently) so the grand total is
+    // known before downloading — that's what makes the progress bar exact.
+    let sizes = try await withThrowingTaskGroup(of: (String, Int64).self) { group -> [String: Int64] in
+        for key in keys {
+            guard let url = URL(string: "\(baseURL)/\(key)") else {
+                throw DownloadError.badURL(key)
+            }
+            group.addTask {
+                var req = URLRequest(url: url)
+                req.httpMethod = "HEAD"
+                let (_, response) = try await URLSession.shared.data(for: req)
+                guard let http = response as? HTTPURLResponse else {
+                    throw DownloadError.httpStatus(key, -1)
+                }
+                guard (200...299).contains(http.statusCode) else {
+                    throw DownloadError.httpStatus(key, http.statusCode)
+                }
+                return (key, max(0, http.expectedContentLength))
+            }
+        }
+        var out: [String: Int64] = [:]
+        for try await (key, size) in group { out[key] = size }
+        return out
+    }
+
+    let root = fluidModelsRoot()
+    let fm = FileManager.default
+    let total = sizes.values.reduce(0, +)
+    var completed: Int64 = 0
+    var lastReported = -1.0
+
+    // Throttle FFI progress calls to ~0.1% steps.
+    func tick(_ delta: Int64) {
+        completed += delta
+        guard total > 0 else { return }
+        let fraction = min(1.0, Double(completed) / Double(total))
+        if fraction - lastReported >= 0.001 || fraction >= 1.0 {
+            lastReported = fraction
+            report(fraction)
+        }
+    }
+
+    report(0.0)
+    for key in keys {
+        let expected = sizes[key] ?? 0
+        let dest = root.appendingPathComponent(relativePath(forKey: key))
+        // Skip files already present with the expected size.
+        if expected > 0, let attrs = try? fm.attributesOfItem(atPath: dest.path),
+            let onDisk = attrs[.size] as? Int64, onDisk == expected
+        {
+            tick(expected)
+            continue
+        }
+        guard let fileURL = URL(string: "\(baseURL)/\(key)") else {
+            throw DownloadError.badURL(key)
+        }
+        let downloader = FileDownloader(dest: dest, onDelta: { delta in tick(delta) })
+        try await downloader.run(url: fileURL)
+    }
+    report(1.0)
+}
+
+// Download the model files for `language` (ASR + shared VAD + diarizer) from the
+// self-hosted bucket, reporting real byte-weighted progress 0.0–1.0. Files land
+// directly in FluidAudio's cache dirs, so the next init/transcribe runs offline.
 @_cdecl("fluid_audio_download_language")
 public func fluid_audio_download_language(
     language: UnsafePointer<CChar>?,
+    baseURL: UnsafePointer<CChar>?,
+    manifestURL: UnsafePointer<CChar>?,
     progress: FluidProgressCallback?,
     callback: FluidAudioCallback?,
     context: UnsafeMutableRawPointer?
 ) {
-    let lang = language != nil ? String(cString: language!) : nil
-    let version = asrVersion(forLanguage: lang)
+    let lang = language != nil ? String(cString: language!) : "en"
+    let base = baseURL != nil ? String(cString: baseURL!) : ""
+    let manifest = manifestURL != nil ? String(cString: manifestURL!) : ""
     let sink = ProgressSink(callback: progress, context: context)
     Task {
         do {
-            // Downloads and compiles the ASR models into the on-disk cache so the
-            // first real transcription is fast. fractionCompleted is reported
-            // coarsely (FluidAudio's async download exposes no per-byte
-            // progress for the large weight files), so the UI shows an
-            // indeterminate indicator rather than a misleading percentage.
-            _ = try await AsrModels.download(
-                version: version,
-                progressHandler: { p in sink.report(p.fractionCompleted * 0.9) }
-            )
-            _ = try await DiarizerModels.downloadIfNeeded(
-                progressHandler: { p in sink.report(0.9 + p.fractionCompleted * 0.1) }
-            )
-            sink.report(1.0)
+            try await downloadLanguageFromS3(
+                lang: lang, baseURL: base, manifestURL: manifest,
+                report: { sink.report($0) })
             let ok = strdup("success")
             callback?(ok, nil, context)
             free(ok)

@@ -3,6 +3,7 @@ import { useBoundStore } from "@/store";
 import {
   deleteLanguage,
   downloadLanguage,
+  fetchModelSizes,
   onSetupProgress,
 } from "@/services/setup";
 import type { MeetingLanguage } from "@/types/meeting";
@@ -22,10 +23,17 @@ export const useModelManager = () => {
   const [progress, setProgress] = useState<LangMap<number>>({});
   const [downloading, setDownloading] = useState<MeetingLanguage[]>([]);
   const [errors, setErrors] = useState<LangMap<string>>({});
+  const [sizes, setSizes] = useState<LangMap<number>>({});
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Real per-language download sizes from the manifest (bytes). Best-effort:
+  // null on network failure, in which case the UI keeps its static estimate.
+  useEffect(() => {
+    void fetchModelSizes().then((s) => s && setSizes(s));
+  }, []);
 
   useEffect(() => {
     const unlisten = onSetupProgress(({ language, fraction }) =>
@@ -72,6 +80,8 @@ export const useModelManager = () => {
     progress,
     downloading,
     errors,
+    /** Real per-language download size in bytes, or undefined until loaded. */
+    sizes,
     download,
     remove,
     isInstalled: (l: MeetingLanguage) => installed?.includes(l) ?? false,

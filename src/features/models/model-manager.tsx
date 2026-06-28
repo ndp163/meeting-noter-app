@@ -1,5 +1,6 @@
 import { Check, Download, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/design-system";
+import { formatBytes } from "@/lib/utils";
 import { LANGUAGES } from "@/lib/languages";
 import type { MeetingLanguage } from "@/types/meeting";
 import { useModelManager } from "./use-model-manager";
@@ -10,7 +11,7 @@ import { DownloadIndicator } from "./download-indicator";
  * user download or remove it. Used inside the settings modal.
  */
 export const ModelManager = () => {
-  const { errors, download, remove, isInstalled, isDownloading } =
+  const { errors, progress, sizes, download, remove, isInstalled, isDownloading } =
     useModelManager();
 
   return (
@@ -21,9 +22,10 @@ export const ModelManager = () => {
           id={lang.id}
           label={lang.label}
           native={lang.native}
-          approxSize={lang.approxSize}
+          approxSize={sizes[lang.id] ? formatBytes(sizes[lang.id]!) : lang.approxSize}
           installed={isInstalled(lang.id)}
           downloading={isDownloading(lang.id)}
+          progress={progress[lang.id]}
           error={errors[lang.id]}
           onDownload={() => download(lang.id)}
           onRemove={() => remove(lang.id)}
@@ -44,6 +46,7 @@ interface ModelRowProps {
   approxSize: string;
   installed: boolean;
   downloading: boolean;
+  progress?: number;
   error?: string;
   onDownload: () => void;
   onRemove: () => void;
@@ -55,6 +58,7 @@ const ModelRow = ({
   approxSize,
   installed,
   downloading,
+  progress,
   error,
   onDownload,
   onRemove,
@@ -105,7 +109,7 @@ const ModelRow = ({
       )}
     </div>
 
-    {downloading && <DownloadIndicator />}
+    {downloading && <DownloadIndicator value={progress} />}
     {error && <p className="text-xs text-[var(--ds-rec)]">{error}</p>}
   </div>
 );

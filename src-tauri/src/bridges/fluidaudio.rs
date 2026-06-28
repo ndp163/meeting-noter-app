@@ -98,6 +98,8 @@ extern "C" {
     fn fluid_audio_model_installed(language: *const c_char) -> bool;
     fn fluid_audio_download_language(
         language: *const c_char,
+        base_url: *const c_char,
+        manifest_url: *const c_char,
         progress: FluidProgressCallback,
         callback: FluidAudioCallback,
         context: *mut c_void,
@@ -191,11 +193,12 @@ impl FluidAudio {
         unsafe { fluid_audio_model_installed(c_lang.as_ptr()) }
     }
 
-    /// Download the ASR model for `language` (plus the shared diarizer if
-    /// missing), invoking `on_progress` with a real fraction 0.0–1.0 as bytes
-    /// land. Uses FluidAudio's own `progressHandler`, the only honest source
-    /// (files download to a temp path and move into the cache dir only on
-    /// completion, so polling dir size stalls then jumps).
+    /// Download the model files for `language` (ASR + shared VAD + diarizer)
+    /// from the self-hosted bucket, invoking `on_progress` with a real fraction
+    /// 0.0–1.0 as bytes land. The Swift side fetches the manifest, sums the
+    /// total bytes for `language`, downloads each missing file straight into
+    /// FluidAudio's cache dirs, and reports byte-accurate progress. Files
+    /// already present with a matching size are skipped (resume-friendly).
     pub async fn download_language_with_progress<F>(
         language: &str,
         on_progress: F,
@@ -204,6 +207,10 @@ impl FluidAudio {
         F: Fn(f64) + Send + 'static,
     {
         let c_lang = CString::new(language).map_err(|e| format!("Invalid language: {}", e))?;
+        let c_base = CString::new(crate::config::MODELS_BASE_URL)
+            .map_err(|e| format!("Invalid base URL: {}", e))?;
+        let c_manifest = CString::new(crate::config::MODELS_MANIFEST_URL)
+            .map_err(|e| format!("Invalid manifest URL: {}", e))?;
         let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
         let ctx = Box::new(PrefetchContext {
             on_progress: Box::new(on_progress),
@@ -214,6 +221,8 @@ impl FluidAudio {
         unsafe {
             fluid_audio_download_language(
                 c_lang.as_ptr(),
+                c_base.as_ptr(),
+                c_manifest.as_ptr(),
                 prefetch_progress_callback,
                 prefetch_done_callback,
                 context,
