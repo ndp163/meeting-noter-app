@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { Check } from "lucide-react";
 import { SetupCard, Step, Button } from "@/design-system";
-import { cn } from "@/lib/utils";
+import { cn, formatBytes } from "@/lib/utils";
 import { LANGUAGES } from "@/lib/languages";
 import type { MeetingLanguage } from "@/types/meeting";
 import { useModelManager } from "@/features/models/use-model-manager";
@@ -18,7 +18,14 @@ type Phase = "select" | "download";
 export const Onboarding = ({ onDone }: { onDone: () => void }) => {
   const [phase, setPhase] = useState<Phase>("select");
   const [selected, setSelected] = useState<MeetingLanguage[]>(["en"]);
-  const { errors, download, isInstalled, isDownloading } = useModelManager();
+  const { errors, progress, sizes, download, isInstalled, isDownloading } =
+    useModelManager();
+
+  // Real download size when known, else the static estimate.
+  const sizeOf = (lang: MeetingLanguage, fallback: string) => {
+    const b = sizes[lang];
+    return b ? formatBytes(b) : fallback;
+  };
 
   const toggle = (lang: MeetingLanguage) =>
     setSelected((s) =>
@@ -101,7 +108,7 @@ export const Onboarding = ({ onDone }: { onDone: () => void }) => {
                       )}
                     </span>
                     <span className="text-xs text-[var(--ds-text-3)]">
-                      {lang.approxSize}
+                      {sizeOf(lang.id, lang.approxSize)}
                     </span>
                   </span>
                 </button>
@@ -133,9 +140,9 @@ export const Onboarding = ({ onDone }: { onDone: () => void }) => {
                 index={i + 1}
                 label={`${info.label} model`}
                 state={done ? "done" : active ? "active" : "todo"}
-                hint={done ? "Installed" : info.approxSize}
+                hint={done ? "Installed" : sizeOf(lang, info.approxSize)}
               >
-                {active && <DownloadIndicator />}
+                {active && <DownloadIndicator value={progress[lang]} />}
                 {error && (
                   <div className="flex flex-col items-start gap-2 mt-2">
                     <p className="text-xs text-[var(--ds-rec)]">{error}</p>
