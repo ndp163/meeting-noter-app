@@ -155,9 +155,15 @@ export const HomePage = () => {
     try {
       const title = await generateTitle(meetingId);
       updateMeeting(meetingId, { title });
-      const meeting = meetings.find((m) => m.id === meetingId);
+      // Read fresh from the store, not the stale `meetings` closure: by the
+      // time the title LLM call returns, the meeting has already transitioned
+      // to "completed". Saving a stale snapshot would clobber that status back
+      // to "recording", and the orphan purge in loadMeetings then deletes it.
+      const meeting = useBoundStore
+        .getState()
+        .meetings.find((m) => m.id === meetingId);
       if (meeting) {
-        await saveMeeting({ ...meeting, title });
+        await saveMeeting(meeting);
       }
     } catch (error) {
       console.error("Auto title generation failed", error);
@@ -167,10 +173,15 @@ export const HomePage = () => {
   };
 
   const handleRenameMeeting = async (id: string, title: string) => {
-    const meeting = meetings.find((m) => m.id === id);
-    if (!meeting || title === meeting.title) return;
+    const existing = useBoundStore.getState().meetings.find((m) => m.id === id);
+    if (!existing || title === existing.title) return;
     updateMeeting(id, { title });
-    await saveMeeting({ ...meeting, title, updatedAt: Date.now() });
+    // Persist the fresh store state (correct status + latest transcript),
+    // never a stale closure snapshot.
+    const meeting = useBoundStore.getState().meetings.find((m) => m.id === id);
+    if (meeting) {
+      await saveMeeting({ ...meeting, updatedAt: Date.now() });
+    }
   };
 
   // On opening the Diarization tab, run it once if there's no cached result.
