@@ -4,19 +4,16 @@ import type { MeetingLanguage } from "@/types/meeting";
 
 const SETUP_PROGRESS_EVENT = "setup://progress";
 
-/** Self-hosted model manifest. Mirror of `MODELS_MANIFEST_URL` in
- *  `src-tauri/src/config.rs` — keep both in sync when bumping the version. */
-const MODELS_MANIFEST_URL =
-  "https://meeting-noter.s3.ap-southeast-1.amazonaws.com/v1/manifest.json";
-
 /** Real per-language download size (bytes), read from the manifest `sizes`
  *  summary so labels reflect the actual files on the server, not a guess.
- *  Returns null on network failure (UI falls back to its static estimate). */
+ *  The manifest URL comes from the backend (single source of truth in
+ *  `config.rs`). Returns null on failure (UI falls back to its static estimate). */
 export const fetchModelSizes = async (): Promise<Partial<
   Record<MeetingLanguage, number>
 > | null> => {
   try {
-    const res = await fetch(MODELS_MANIFEST_URL, { cache: "no-store" });
+    const url = await invoke<string>("models_manifest_url");
+    const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) return null;
     const manifest = (await res.json()) as {
       sizes?: Partial<Record<MeetingLanguage, number>>;

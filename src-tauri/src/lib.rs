@@ -16,7 +16,7 @@ use commands::{
     start_recording_from_alert, dismiss_alert,
     get_meetings, get_meeting_detail, save_meeting, delete_meeting, get_meeting_audio_path,
     diarize_meeting,
-    models_ready, installed_languages, download_language, delete_language,
+    models_ready, models_manifest_url, installed_languages, download_language, delete_language,
     claude_available, generate_title, summarize_meeting, translate_summary,
 };
 use session::RecorderState;
@@ -59,6 +59,7 @@ pub async fn run() -> Result<()> {
             get_meeting_audio_path,
             diarize_meeting,
             models_ready,
+            models_manifest_url,
             installed_languages,
             download_language,
             delete_language,
