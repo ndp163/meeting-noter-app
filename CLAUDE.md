@@ -87,6 +87,33 @@ on `--ds-*` tokens — ask before adding deps.
 - Backend calls go through a `src/services/` wrapper, never raw `invoke` in components.
 - UI state in zustand slices, not prop-drilled globals.
 
+## Public repo — keep private info OUT
+
+**This repository is public.** Everything committed (code, docs, commit
+messages, history) is world-readable forever. Before writing anything into the
+repo, assume it will be read by competitors and the public.
+
+Never commit into this repo:
+- **Secrets** — API keys, tokens, AWS/cloud creds, signing/private keys,
+  `.env` files. Secrets belong in GitHub Actions secrets / a vault, referenced
+  as `${{ secrets.X }}`.
+- **Business strategy** — monetization, pricing, revenue plans, go-to-market,
+  competitive analysis.
+- **Anti-piracy / license-key internals** — key formats, signing scheme,
+  threat model. Publishing the lock helps people pick it.
+- **Paid-feature source** — paid code lives in the separate private repo, not
+  here (open-core: this repo is the free core only).
+- **PII / personal or employer data** — real names tied to private email,
+  internal company info, customer data.
+- **Real recordings** — no `.wav`/audio from actual meetings (privacy + it
+  contradicts the offline promise).
+
+Private/strategy docs live **outside the repo** (`~/meeting-noter-notes/` and
+the future private `meeting-noter-pro` repo). If asked to write strategy,
+pricing, or license-key design, put it there — not in the repo.
+
+When unsure whether something is safe to commit, **ask first.**
+
 ## Git
 
 - Branch before editing on `main`; conventional commits (`feat:`, `fix:`, `chore:`).
