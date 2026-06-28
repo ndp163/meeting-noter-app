@@ -1,17 +1,15 @@
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { getVersion } from "@tauri-apps/api/app";
+
+// The version of the running app (from tauri.conf.json).
+export const getCurrentVersion = (): Promise<string> => getVersion();
 
 // Ask GitHub Releases whether a newer signed bundle exists. Returns the pending
-// Update (with version + notes) or null when already current. Errors (offline,
-// etc.) resolve to null so a failed check never blocks the UI.
-export const checkForUpdate = async (): Promise<Update | null> => {
-  try {
-    return await check();
-  } catch (err) {
-    console.error("Update check failed:", err);
-    return null;
-  }
-};
+// Update (with version + notes) or null when already current. Throws on failure
+// (offline, network) — the caller decides whether to surface it (manual check)
+// or swallow it (passive banner check).
+export const checkForUpdate = (): Promise<Update | null> => check();
 
 // Download + install the given update, reporting download progress (0..1) via
 // onProgress, then relaunch into the new version. Caller drives this from a

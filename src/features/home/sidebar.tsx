@@ -47,7 +47,9 @@ export const Sidebar = ({
   const installedLanguages = useBoundStore.use.installedLanguages();
   const refreshInstalledLanguages =
     useBoundStore.use.refreshInstalledLanguages();
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsOpen = useBoundStore.use.settingsOpen();
+  const openSettings = useBoundStore.use.openSettings();
+  const closeSettings = useBoundStore.use.closeSettings();
 
   useEffect(() => {
     void refreshInstalledLanguages();
@@ -61,7 +63,7 @@ export const Sidebar = ({
   // panel to download it instead of silently failing.
   const handleToggleCapture = () => {
     if (!isCapturing && !langReady) {
-      setSettingsOpen(true);
+      openSettings("models");
       return;
     }
     onToggleCapture();
@@ -87,8 +89,8 @@ export const Sidebar = ({
           {!isSidebarCollapsed && (
             <IconButton
               icon={<Settings className="w-5 h-5" />}
-              label="Languages & models"
-              onClick={() => setSettingsOpen(true)}
+              label="Settings"
+              onClick={() => openSettings()}
             />
           )}
           <IconButton
@@ -132,7 +134,7 @@ export const Sidebar = ({
           />
           {!langReady && !isCapturing && (
             <button
-              onClick={() => setSettingsOpen(true)}
+              onClick={() => openSettings("models")}
               className="flex items-center gap-1.5 self-start text-xs text-[var(--ds-accent)] hover:underline px-1"
             >
               <Download className="w-3.5 h-3.5" />
@@ -164,7 +166,7 @@ export const Sidebar = ({
         )}
       </div>
 
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsModal open={settingsOpen} onClose={closeSettings} />
     </div>
   );
 };
