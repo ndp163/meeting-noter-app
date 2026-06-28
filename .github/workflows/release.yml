@@ -85,8 +85,21 @@ jobs:
           BUNDLE_DIR="src-tauri/target/aarch64-apple-darwin/release/bundle/macos"
           TARBALL=$(ls "$BUNDLE_DIR"/*.app.tar.gz)
           SIG=$(ls "$BUNDLE_DIR"/*.app.tar.gz.sig)
-          TARBALL_NAME=$(basename "$TARBALL")
-          URL="https://github.com/$RELEASES_REPO/releases/download/$TAG/$TARBALL_NAME"
+
+          # productName is "Meeting Noter" (has a space). GitHub rewrites spaces
+          # to dots in asset names on upload, so a URL built from the local
+          # (spaced) filename 404s and the updater silently fails to download.
+          # Rename the assets to a space-free name and use it for both the upload
+          # and the URL so they always match. Signature is verified over file
+          # bytes (inline in latest.json), so renaming is safe.
+          ASSET_NAME="$(basename "$TARBALL" | tr ' ' '.')"
+          if [ "$(basename "$TARBALL")" != "$ASSET_NAME" ]; then
+            mv "$TARBALL" "$BUNDLE_DIR/$ASSET_NAME"
+            mv "$SIG" "$BUNDLE_DIR/$ASSET_NAME.sig"
+            TARBALL="$BUNDLE_DIR/$ASSET_NAME"
+            SIG="$BUNDLE_DIR/$ASSET_NAME.sig"
+          fi
+          URL="https://github.com/$RELEASES_REPO/releases/download/$TAG/$ASSET_NAME"
 
           # Notes: manual input wins; otherwise the conventional-commit subjects
           # since the previous tag (dropping chore:/ci: housekeeping).
