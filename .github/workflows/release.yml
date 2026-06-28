@@ -17,6 +17,11 @@ on:
           - patch
           - minor
           - major
+      notes:
+        description: "Release notes (markdown). Leave empty to auto-generate from git log."
+        type: string
+        required: false
+        default: ""
 
 jobs:
   release:
@@ -81,22 +86,32 @@ jobs:
           TARBALL=$(ls "$BUNDLE_DIR"/*.app.tar.gz)
           SIG=$(ls "$BUNDLE_DIR"/*.app.tar.gz.sig)
           TARBALL_NAME=$(basename "$TARBALL")
+          URL="https://github.com/$RELEASES_REPO/releases/download/$TAG/$TARBALL_NAME"
 
-          cat > latest.json <<EOF
-          {
-            "version": "$VERSION",
-            "notes": "See release $TAG",
-            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "platforms": {
-              "darwin-aarch64": {
-                "signature": "$(cat "$SIG")",
-                "url": "https://github.com/$RELEASES_REPO/releases/download/$TAG/$TARBALL_NAME"
-              }
-            }
-          }
-          EOF
+          # Notes: manual input wins; otherwise the conventional-commit subjects
+          # since the previous tag (dropping chore:/ci: housekeeping).
+          NOTES="${{ github.event.inputs.notes }}"
+          if [ -z "$NOTES" ]; then
+            PREV=$(git tag --sort=-v:refname | sed -n 2p)
+            RANGE="$TAG"
+            [ -n "$PREV" ] && RANGE="$PREV..$TAG"
+            NOTES=$(git log "$RANGE" --no-merges --pretty='- %s' | grep -vE '^- (chore|ci):' || true)
+          fi
+          [ -z "$NOTES" ] && NOTES="Maintenance release."
+
+          # jq builds JSON safely — escapes quotes/newlines in multi-line notes
+          # that a heredoc would corrupt.
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "$NOTES" \
+            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg sig "$(cat "$SIG")" \
+            --arg url "$URL" \
+            '{version:$version, notes:$notes, pub_date:$pub_date,
+              platforms:{"darwin-aarch64":{signature:$sig, url:$url}}}' > latest.json
 
           gh release create "$TAG" \
             --repo "$RELEASES_REPO" \
             --title "noter $TAG" \
+            --notes "$NOTES" \
             "$TARBALL" "$SIG" latest.json

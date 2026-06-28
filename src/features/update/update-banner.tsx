@@ -1,66 +1,51 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Download, X } from "lucide-react";
-import type { Update } from "@tauri-apps/plugin-updater";
-import { checkForUpdate, installUpdate } from "@/services/updater";
-
-type Phase = "idle" | "available" | "installing";
+import { listen } from "@tauri-apps/api/event";
+import { useBoundStore } from "@/store";
 
 /**
- * Checks for an update once on mount. When one exists it slides in a banner at
- * the top of the window asking the user to install. Installing shows download
- * progress, then relaunches into the new version. Dismissing hides the banner
- * until the next launch.
+ * Passive update surface. Checks once on mount and slides a banner in at the top
+ * of the window when a newer version exists; the user installs (download
+ * progress, then relaunch) or dismisses for the session. Also listens for the
+ * tray "Check for Updates…" item, which opens the Settings → Updates tab.
+ *
+ * All state lives in the update slice so the banner, the Settings tab, and the
+ * tray share one source of truth and never double-check.
  */
 export const UpdateBanner = () => {
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [update, setUpdate] = useState<Update | null>(null);
-  const [progress, setProgress] = useState(0);
+  const phase = useBoundStore.use.updatePhase();
+  const info = useBoundStore.use.updateInfo();
+  const progress = useBoundStore.use.updateProgress();
+  const dismissed = useBoundStore.use.updateDismissed();
+  const checkUpdate = useBoundStore.use.checkUpdate();
+  const runInstall = useBoundStore.use.runInstall();
+  const dismissUpdate = useBoundStore.use.dismissUpdate();
+  const loadCurrentVersion = useBoundStore.use.loadCurrentVersion();
+  const openSettings = useBoundStore.use.openSettings();
 
   useEffect(() => {
-    checkForUpdate().then((u) => {
-      if (u) {
-        setUpdate(u);
-        setPhase("available");
-      }
+    void loadCurrentVersion();
+    void checkUpdate();
+
+    const unlisten = listen("tray://check-update", () => {
+      openSettings("updates");
+      void checkUpdate();
     });
-  }, []);
+    return () => {
+      void unlisten.then((off) => off());
+    };
+  }, [loadCurrentVersion, checkUpdate, openSettings]);
 
-  if (phase === "idle" || !update) return null;
+  const installing = phase === "installing";
+  const showAvailable = phase === "available" && !dismissed && !!info;
 
-  const handleInstall = async () => {
-    setPhase("installing");
-    try {
-      await installUpdate(update, setProgress);
-    } catch (err) {
-      console.error("Update install failed:", err);
-      setPhase("available");
-    }
-  };
+  if (!installing && !showAvailable) return null;
 
   return (
     <div className="fixed top-0 inset-x-0 z-50 flex items-center gap-3 px-5 py-2.5 bg-[var(--ds-accent)] text-[var(--ds-on-accent)] text-sm shadow-[var(--ds-shadow)]">
       <Download className="w-4 h-4 shrink-0" />
 
-      {phase === "available" ? (
-        <>
-          <span className="flex-1">
-            Version {update.version} available.
-          </span>
-          <button
-            onClick={handleInstall}
-            className="font-semibold underline underline-offset-2"
-          >
-            Install &amp; restart
-          </button>
-          <button
-            onClick={() => setPhase("idle")}
-            aria-label="Dismiss"
-            className="shrink-0 opacity-70 hover:opacity-100"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </>
-      ) : (
+      {installing ? (
         <>
           <span className="flex-1">
             Downloading update… {Math.round(progress * 100)}%
@@ -71,6 +56,29 @@ export const UpdateBanner = () => {
               style={{ width: `${progress * 100}%` }}
             />
           </div>
+        </>
+      ) : (
+        <>
+          <span className="flex-1">Version {info!.version} available.</span>
+          <button
+            onClick={() => openSettings("updates")}
+            className="underline underline-offset-2 opacity-90 hover:opacity-100"
+          >
+            What&apos;s new
+          </button>
+          <button
+            onClick={() => void runInstall()}
+            className="font-semibold underline underline-offset-2"
+          >
+            Install &amp; restart
+          </button>
+          <button
+            onClick={dismissUpdate}
+            aria-label="Dismiss"
+            className="shrink-0 opacity-70 hover:opacity-100"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </>
       )}
     </div>
