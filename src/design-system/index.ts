@@ -54,3 +54,4 @@ export type { AudioPlayerProps } from "./AudioPlayer";
 
 export { Brand } from "./Brand";
 export type { BrandProps } from "./Brand";
+export { BrandMark } from "./BrandMark";

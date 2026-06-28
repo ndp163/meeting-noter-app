@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import { Mic } from "lucide-react";
+import { BrandMark } from "./BrandMark";
 import { clsx } from "./util";
 
 export interface BrandProps {
@@ -15,7 +15,9 @@ export interface BrandProps {
 /** App brand lockup — gradient glyph + wordmark. */
 export const Brand = ({ name = "Meeting Noter", glyphOnly, logo, className }: BrandProps) => (
   <span className={clsx("ds-brand", className)}>
-    <span className="ds-brand__logo">{logo ?? <Mic size={16} />}</span>
+    <span className={clsx("ds-brand__logo", !logo && "ds-brand__logo--mark")}>
+      {logo ?? <BrandMark size={28} />}
+    </span>
     {!glyphOnly && <span className="ds-brand__name">{name}</span>}
   </span>
 );
