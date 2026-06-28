@@ -30,6 +30,12 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        # Full history + tags. Default fetch-depth:1 is shallow: no prior tags
+        # (so the notes range falls back to the whole log) and merge commits get
+        # grafted to zero parents, defeating `git log --no-merges` — which leaked
+        # "Merge pull request #N …" lines into the auto-generated release notes.
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
         with:
