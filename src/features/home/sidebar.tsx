@@ -290,7 +290,12 @@ const MeetingCard = ({
         )}
       </div>
       <div className="ds-meeting__row">
-        <p className="ds-meeting__meta">{formatDate(meeting.createdAt)}</p>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <p className="ds-meeting__meta">{formatDate(meeting.createdAt)}</p>
+          {meeting.platform && (
+            <span className="ds-src shrink-0">{meeting.platform}</span>
+          )}
+        </div>
         {meeting.status !== "recording" && (
           <button
             onClick={handleDelete}

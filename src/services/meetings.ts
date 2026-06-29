@@ -52,6 +52,7 @@ export const getMeetingAudioPath = async (
 
 export const createNewMeeting = async (
   language: MeetingLanguage = "en",
+  platform?: string,
 ): Promise<Meeting> => {
   const meeting: Meeting = {
     id: crypto.randomUUID(),
@@ -61,6 +62,7 @@ export const createNewMeeting = async (
     duration: 0,
     status: "recording",
     language,
+    platform,
     transcript: [],
   };
   await saveMeeting(meeting);

@@ -73,6 +73,10 @@ pub struct Meeting {
     /// meetings, which default to English.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
+    /// Meeting app detected at capture start (`"Teams"`, `"Zoom"`, `"Chrome"`,
+    /// …). Absent on older meetings or when no app was detected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform: Option<String>,
     #[serde(alias = "audio_path")]
     pub audio_path: Option<String>,
     pub transcript: Vec<TranscriptMessage>,

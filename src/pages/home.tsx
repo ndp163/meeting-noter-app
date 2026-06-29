@@ -19,6 +19,7 @@ import {
   createNewMeeting,
 } from "@/services/meetings";
 import { diarizeMeeting } from "@/services/diarization";
+import { detectMeetingPlatform } from "@/services/meeting-detector";
 import {
   summarizeMeeting,
   translateSummary,
@@ -424,7 +425,8 @@ export const HomePage = () => {
           }
         }
       } else {
-        const newMeeting = await createNewMeeting(captureLanguage);
+        const platform = await detectMeetingPlatform();
+        const newMeeting = await createNewMeeting(captureLanguage, platform);
         addMeeting(newMeeting);
         setCurrentMeetingId(newMeeting.id);
         setAudioPath(undefined);
