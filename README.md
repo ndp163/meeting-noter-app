@@ -38,6 +38,8 @@ flips that:
 - 🔔 **Meeting auto-detect** — optional overlay when a meeting starts.
 - 💾 **Local-first storage** — each meeting is `audio.wav` / `mic.wav` /
   `speaker.wav` / `meeting.json` in a directory you control.
+- 🤖 **AI summaries (optional)** — TL;DR, key points, decisions, and action
+  items, generated locally via the Claude Code CLI. See below.
 
 ## Requirements
 
@@ -51,6 +53,23 @@ flips that:
 
 Download the latest signed build from the [releases page](#). On first launch the
 app downloads the on-device models, then you're ready.
+
+## AI summaries (optional)
+
+Transcription is fully offline and needs nothing extra. The **AI summary** tab
+is the one optional feature with an external dependency: it shells out to the
+[Claude Code CLI](https://docs.claude.com/en/docs/claude-code/setup) installed on
+your own machine — the command-line `claude` binary, **not** the Claude desktop
+app.
+
+- The transcript is piped to the local `claude` binary on stdin — it goes to
+  Claude Code, not to this app's servers (there are none). No API key is stored
+  by Meeting Noter; it reuses your existing Claude Code login.
+- To enable: install Claude Code, run `claude login`, then open the Summary tab
+  and reopen it. The app auto-detects the `claude` binary in the usual install
+  locations.
+- If `claude` isn't found, the Summary tab tells you and links to the install
+  page. Everything else in the app keeps working without it.
 
 ## Architecture
 

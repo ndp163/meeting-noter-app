@@ -29,6 +29,8 @@ export interface Meeting {
   duration: number;
   status: "recording" | "completed";
   language?: MeetingLanguage;
+  /** Meeting app detected at capture start ("Teams", "Zoom", "Chrome", …). */
+  platform?: string;
   audioPath?: string;
   transcript: TranscriptMessage[];
   diarization?: DiarizedSegment[];
