@@ -1,5 +1,8 @@
 import { useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button, PillToggle, Prose } from "@/design-system";
+
+const CLAUDE_CODE_URL = "https://docs.claude.com/en/docs/claude-code/setup";
 
 interface SummaryViewProps {
   summary: string | undefined;
@@ -40,9 +43,22 @@ export const SummaryView = ({
 
   if (claudeReady === false) {
     return (
-      <div className="text-[var(--ds-text-2)] text-sm">
-        AI summaries use the Claude Code CLI. Install Claude Code and log in,
-        then reopen this tab.
+      <div className="flex flex-col gap-2 items-start text-[var(--ds-text-2)] text-sm">
+        <p>
+          AI summaries run locally through the Claude Code CLI — your transcript
+          never leaves this machine. This is the command-line tool (the{" "}
+          <code className="text-[var(--ds-text)]">claude</code> binary), not the
+          Claude desktop app. Install it, run{" "}
+          <code className="text-[var(--ds-text)]">claude login</code>, then
+          reopen this tab.
+        </p>
+        <button
+          type="button"
+          className="underline text-[var(--ds-text)] hover:text-[var(--ds-accent)]"
+          onClick={() => void openUrl(CLAUDE_CODE_URL)}
+        >
+          Install the Claude Code CLI
+        </button>
       </div>
     );
   }
