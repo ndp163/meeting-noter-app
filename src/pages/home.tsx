@@ -369,32 +369,28 @@ export const HomePage = () => {
     updateTranscriptInMeeting,
   ]);
 
+  // Disable auto-scroll only when the user scrolls up away from the bottom.
+  // (Don't use marker visibility — appending a line pushes the marker out of
+  // view and would wrongly disable auto-scroll, killing it permanently.)
   useEffect(() => {
-    console.log(!contentAreaRef.current || !messagesEndRef.current);
-    if (!contentAreaRef.current || !messagesEndRef.current) return;
+    const el = contentAreaRef.current;
+    if (!el) return;
 
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        console.log("Messages end intersection:", entry.isIntersecting);
-        setIsAutoScroll(entry.isIntersecting);
-      },
-      {
-        root: contentAreaRef.current,
-        threshold: 0,
-      },
-    );
+    const onScroll = () => {
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      setIsAutoScroll(nearBottom);
+    };
 
-    observer.observe(messagesEndRef.current);
-
-    return () => observer.disconnect();
-  }, [contentAreaRef.current, messagesEndRef.current]);
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     if (messagesEndRef.current && isAutoScroll) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages]);
+  }, [messages, isAutoScroll]);
 
   const handleCaptureToggle = async () => {
     if (isCaptureBusy) {
