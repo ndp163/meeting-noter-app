@@ -38,10 +38,12 @@ pub const MIN_CHUNK_SAMPLES: usize = SAMPLE_RATE_16KHZ as usize;
 /// clipped from the transcription.
 pub const PRE_ROLL_SAMPLES: usize = SAMPLE_RATE_16KHZ as usize / 2;
 
-/// Minimum buffer growth between consecutive streaming previews (1 second).
+/// Minimum buffer growth between consecutive streaming previews (0.25 second).
 /// Each preview re-transcribes the whole buffer, so emitting one per chunk
-/// would cost O(n²); this caps previews at roughly one per second.
-pub const PARTIAL_INTERVAL_SAMPLES: usize = SAMPLE_RATE_16KHZ as usize;
+/// would cost O(n²); this caps previews at roughly four per second. The
+/// effective rate is still bounded by ASR latency — when a preview's ASR call
+/// outlasts this interval, the next preview is dropped (see pipeline worker).
+pub const PARTIAL_INTERVAL_SAMPLES: usize = SAMPLE_RATE_16KHZ as usize / 4;
 
 /// Buffered speech that triggers a committed segment flush (4 seconds).
 pub const SEGMENT_FLUSH_SAMPLES: usize = SAMPLE_RATE_16KHZ as usize * 4;
