@@ -4,6 +4,7 @@ mod commands;
 mod config;
 pub mod logging;
 mod meeting_detector;
+mod mlx;
 pub mod paths;
 mod recorder;
 mod session;
@@ -18,6 +19,8 @@ use commands::{
     diarize_meeting,
     models_ready, models_manifest_url, installed_languages, download_language, delete_language,
     claude_available, generate_title, summarize_meeting, translate_summary,
+    local_model_available, download_local_model, delete_local_model,
+    get_summary_provider, set_summary_provider,
 };
 use session::RecorderState;
 
@@ -67,6 +70,11 @@ pub async fn run() -> Result<()> {
             generate_title,
             summarize_meeting,
             translate_summary,
+            local_model_available,
+            download_local_model,
+            delete_local_model,
+            get_summary_provider,
+            set_summary_provider,
         ])
         .run(tauri::generate_context!())
         .map_err(|e| anyhow::anyhow!(e))

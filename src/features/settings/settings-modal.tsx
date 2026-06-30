@@ -1,5 +1,6 @@
 import { Modal, Tabs } from "@/design-system";
 import { ModelManager } from "@/features/models/model-manager";
+import { SummaryTab } from "./summary-tab";
 import { UpdatesTab } from "./updates-tab";
 import { useBoundStore } from "@/store";
 import type { SettingsTab } from "@/store/ui.slice";
@@ -10,11 +11,12 @@ interface SettingsModalProps {
 }
 
 const TABS = [
-  { id: "models", label: "Languages & models" },
+  { id: "models", label: "Languages" },
+  { id: "summary", label: "AI summary" },
   { id: "updates", label: "Updates" },
 ];
 
-/** Settings overlay. Tabs between the model manager and the updates panel. */
+/** Settings overlay. Tabs between languages, the AI summary engine, and updates. */
 export const SettingsModal = ({ open, onClose }: SettingsModalProps) => {
   const tab = useBoundStore.use.settingsTab();
   const setTab = useBoundStore.use.setSettingsTab();
@@ -28,7 +30,13 @@ export const SettingsModal = ({ open, onClose }: SettingsModalProps) => {
           value={tab}
           onChange={(id) => setTab(id as SettingsTab)}
         />
-        {tab === "models" ? <ModelManager /> : <UpdatesTab />}
+        {tab === "models" ? (
+          <ModelManager />
+        ) : tab === "summary" ? (
+          <SummaryTab />
+        ) : (
+          <UpdatesTab />
+        )}
       </div>
     </Modal>
   );

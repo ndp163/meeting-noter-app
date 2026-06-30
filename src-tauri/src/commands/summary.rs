@@ -1,11 +1,13 @@
-//! AI meeting summary via the local Claude Code CLI.
+//! AI meeting summary with a pluggable provider.
 //!
-//! Runs on demand (when the user clicks "Generate summary"). Reads the saved
-//! transcript, pipes it to `claude -p` on stdin with summarization
-//! instructions, and returns the markdown result. Uses the user's existing
-//! Claude Code login — no API key is managed here. If the `claude` binary is
-//! absent or not authenticated, the command surfaces a clear error so the UI
-//! can fall back to a hint.
+//! Two backends, selected by the persisted `summary_provider` setting:
+//!   - `claude` (default) — pipes the transcript to the local Claude Code CLI
+//!     (`claude -p`), using the user's existing login. Needs the network.
+//!   - `local` — runs the on-device MLX model (`crate::mlx`), fully offline.
+//!
+//! Each task (summarize / title / translate) builds its prompt the same way for
+//! both providers; only the inference call differs. Errors surface clearly so
+//! the UI can show an install/login/download hint.
 
 use crate::paths;
 use crate::types::Meeting;
@@ -118,9 +120,9 @@ pub async fn summarize_meeting(meeting_id: String) -> Result<String, String> {
     }
 
     tracing::info!("Summarizing meeting {}", meeting_id);
-    let summary = run_claude(&meeting_id, INSTRUCTIONS, &transcript).await?;
+    let summary = run_inference(&meeting_id, INSTRUCTIONS, &transcript, 2048).await?;
     if summary.is_empty() {
-        return Err("claude returned an empty summary.".to_string());
+        return Err("The summary came back empty.".to_string());
     }
     Ok(summary)
 }
@@ -144,9 +146,9 @@ pub async fn generate_title(meeting_id: String) -> Result<String, String> {
     }
 
     tracing::info!("Generating title for meeting {}", meeting_id);
-    let title = run_claude(&meeting_id, TITLE_INSTRUCTIONS, &transcript).await?;
+    let title = run_inference(&meeting_id, TITLE_INSTRUCTIONS, &transcript, 64).await?;
     if title.is_empty() {
-        return Err("claude returned an empty title.".to_string());
+        return Err("The title came back empty.".to_string());
     }
     Ok(title)
 }
@@ -170,11 +172,41 @@ pub async fn translate_summary(meeting_id: String) -> Result<String, String> {
         .ok_or("Generate a summary before translating.")?;
 
     tracing::info!("Translating summary for meeting {}", meeting_id);
-    let translated = run_claude(&meeting_id, TRANSLATE_INSTRUCTIONS, &summary).await?;
+    let translated = run_inference(&meeting_id, TRANSLATE_INSTRUCTIONS, &summary, 2048).await?;
     if translated.is_empty() {
-        return Err("claude returned an empty translation.".to_string());
+        return Err("The translation came back empty.".to_string());
     }
     Ok(translated)
+}
+
+/// Route one inference to the configured provider. `max_tokens` caps the local
+/// model's output (ignored by the Claude CLI, which manages its own length).
+async fn run_inference(
+    meeting_id: &str,
+    instructions: &str,
+    input: &str,
+    max_tokens: i32,
+) -> Result<String, String> {
+    match crate::commands::settings::summary_provider().as_str() {
+        "local" => run_local(instructions, input, max_tokens).await,
+        _ => run_claude(meeting_id, instructions, input).await,
+    }
+}
+
+/// Generate with the on-device MLX model. The FFI call blocks, so it runs on a
+/// blocking thread.
+async fn run_local(instructions: &str, input: &str, max_tokens: i32) -> Result<String, String> {
+    if !crate::mlx::installed() {
+        return Err("The local model isn't installed yet. Download it in Settings → Models.".to_string());
+    }
+    let model_dir = crate::mlx::model_dir().to_string_lossy().into_owned();
+    let instructions = instructions.to_string();
+    let input = input.to_string();
+    tokio::task::spawn_blocking(move || {
+        crate::mlx::generate(&model_dir, &instructions, &input, max_tokens)
+    })
+    .await
+    .map_err(|e| format!("local generation task failed: {e}"))?
 }
 
 /// Pipe `input` to `claude -p <instructions>` and return its trimmed stdout.

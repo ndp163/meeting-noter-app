@@ -2,7 +2,7 @@ import { StateCreator } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { MeetingLanguage } from "@/types/meeting";
 
-export type SettingsTab = "models" | "updates";
+export type SettingsTab = "models" | "summary" | "updates";
 
 export interface UISlice {
   isSidebarCollapsed: boolean;
