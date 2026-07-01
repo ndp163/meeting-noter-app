@@ -1,5 +1,7 @@
 mod detection;
 mod diarization;
+mod mlx;
+pub mod settings;
 mod setup;
 mod summary;
 mod transcription;
@@ -8,6 +10,10 @@ mod meetings;
 pub use detection::{meeting_detection_status, start_recording_from_alert, dismiss_alert};
 
 pub use diarization::diarize_meeting;
+
+pub use mlx::{delete_local_model, download_local_model, local_model_available};
+
+pub use settings::{get_summary_provider, set_summary_provider};
 
 pub use setup::{
     delete_language, download_language, installed_languages, models_manifest_url, models_ready,

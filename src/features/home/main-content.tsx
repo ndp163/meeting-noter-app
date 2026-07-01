@@ -6,6 +6,7 @@ import { AudioPlayer, type AudioPlayerHandle } from "@/features/home/audio-playe
 import { DiarizationView } from "@/features/home/diarization-view";
 import { SummaryView } from "@/features/home/summary-view";
 import type { TranscriptMessage, DiarizedSegment } from "@/types/meeting";
+import type { SummaryProvider } from "@/services/summary";
 
 export type MainTab = "transcript" | "summary" | "diarization";
 
@@ -32,7 +33,8 @@ interface MainContentProps {
   summaryError?: string;
   translateError?: string;
   canSummarize: boolean;
-  claudeReady: boolean | undefined;
+  summaryReady: boolean | undefined;
+  summaryProvider: SummaryProvider;
   onRunSummary: () => void;
   onTranslateSummary: () => void;
 }
@@ -58,9 +60,10 @@ export const MainContent = ({
   isSummarizing,
   isTranslating,
   summaryError,
+  summaryProvider,
   translateError,
   canSummarize,
-  claudeReady,
+  summaryReady,
   onRunSummary,
   onTranslateSummary,
 }: MainContentProps) => {
@@ -188,7 +191,8 @@ export const MainContent = ({
               error={summaryError}
               translateError={translateError}
               canRun={canSummarize}
-              claudeReady={claudeReady}
+              summaryReady={summaryReady}
+              summaryProvider={summaryProvider}
               onRun={onRunSummary}
               onTranslate={onTranslateSummary}
             />

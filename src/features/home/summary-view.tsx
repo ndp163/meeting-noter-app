@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button, PillToggle, Prose } from "@/design-system";
+import { useBoundStore } from "@/store";
+import type { SummaryProvider } from "@/services/summary";
 
 const CLAUDE_CODE_URL = "https://docs.claude.com/en/docs/claude-code/setup";
 
@@ -12,7 +14,9 @@ interface SummaryViewProps {
   error?: string;
   translateError?: string;
   canRun: boolean;
-  claudeReady: boolean | undefined;
+  /** Whether the selected provider is ready to run. */
+  summaryReady: boolean | undefined;
+  summaryProvider: SummaryProvider;
   onRun: () => void;
   onTranslate: () => void;
 }
@@ -27,22 +31,40 @@ export const SummaryView = ({
   error,
   translateError,
   canRun,
-  claudeReady,
+  summaryReady,
+  summaryProvider,
   onRun,
   onTranslate,
 }: SummaryViewProps) => {
   const [lang, setLang] = useState<Lang>("en");
+  const openSettings = useBoundStore.use.openSettings();
 
   if (isLoading) {
     return (
       <div className="text-[var(--ds-text-2)] text-sm">
-        Generating summary with Claude…
+        {summaryProvider === "local"
+          ? "Generating summary on-device…"
+          : "Generating summary with Claude…"}
       </div>
     );
   }
 
-  if (claudeReady === false) {
-    return (
+  if (summaryReady === false) {
+    return summaryProvider === "local" ? (
+      <div className="flex flex-col gap-2 items-start text-[var(--ds-text-2)] text-sm">
+        <p>
+          The on-device summary model isn't installed yet. Download it once
+          (~2.3 GB) and summaries run fully offline — no network, no login.
+        </p>
+        <button
+          type="button"
+          className="underline text-[var(--ds-text)] hover:text-[var(--ds-accent)]"
+          onClick={() => openSettings("summary")}
+        >
+          Download the on-device model
+        </button>
+      </div>
+    ) : (
       <div className="flex flex-col gap-2 items-start text-[var(--ds-text-2)] text-sm">
         <p>
           AI summaries run locally through the Claude Code CLI — your transcript

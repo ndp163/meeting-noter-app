@@ -9,3 +9,8 @@
 # Audio recordings
 *.wav
 mixed.wav
+
+# MLX summary bridge — Swift package for the optional on-device runtime.
+# Built manually (not part of `cargo build`); the dylib ships via S3, not git.
+# Kept locally / out of the repo by choice.
+mlx-bridge/

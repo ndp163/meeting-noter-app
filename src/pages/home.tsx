@@ -25,6 +25,9 @@ import {
   translateSummary,
   generateTitle,
   isClaudeAvailable,
+  isLocalModelAvailable,
+  getSummaryProvider,
+  type SummaryProvider,
 } from "@/services/summary";
 import { useBoundStore } from "@/store";
 import type { TranscriptMessage } from "@/types/meeting";
@@ -44,6 +47,11 @@ export const HomePage = () => {
   const [isTranslating, setIsTranslating] = useState(false);
   const [translateError, setTranslateError] = useState<string>();
   const [claudeReady, setClaudeReady] = useState<boolean>();
+  const [localReady, setLocalReady] = useState<boolean>();
+  const [summaryProvider, setSummaryProvider] = useState<SummaryProvider>("claude");
+  // Readiness of whichever provider is selected.
+  const summaryReady =
+    summaryProvider === "local" ? localReady : claudeReady;
   const [titlingMeetingId, setTitlingMeetingId] = useState<string | null>(null);
 
   // Zustand store
@@ -201,16 +209,26 @@ export const HomePage = () => {
     };
   }, []);
 
-  // Detect the Claude Code CLI once so the Summary tab can degrade gracefully.
+  // Detect provider + readiness so the Summary tab can degrade gracefully.
+  // Re-checked when the settings modal closes, since the user may have switched
+  // provider or downloaded the on-device model there.
+  const settingsOpen = useBoundStore.use.settingsOpen();
   useEffect(() => {
+    if (settingsOpen) return;
     let mounted = true;
+    void getSummaryProvider()
+      .then((p) => mounted && setSummaryProvider(p))
+      .catch(() => {});
     isClaudeAvailable()
       .then((ready) => mounted && setClaudeReady(ready))
       .catch(() => mounted && setClaudeReady(false));
+    isLocalModelAvailable()
+      .then((ready) => mounted && setLocalReady(ready))
+      .catch(() => mounted && setLocalReady(false));
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [settingsOpen]);
 
   // Ref for auto-scrolling to bottom
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -417,7 +435,7 @@ export const HomePage = () => {
             setAudioPath(path);
 
             if (
-              claudeReady &&
+              summaryReady &&
               meeting.title === "Untitled" &&
               meeting.transcript.length > 0
             ) {
@@ -587,7 +605,8 @@ export const HomePage = () => {
         summaryError={summaryError}
         translateError={translateError}
         canSummarize={canSummarize}
-        claudeReady={claudeReady}
+        summaryReady={summaryReady}
+        summaryProvider={summaryProvider}
         onRunSummary={handleGenerateSummary}
         onTranslateSummary={handleTranslateSummary}
       />

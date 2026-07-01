@@ -32,3 +32,6 @@ src/design-system/dist-types
 *.sln
 *.sw?
 .build
+# Local release tooling — kept local, not committed (secrets + machine-specific)
+scripts/release-local.*
+/latest.json
