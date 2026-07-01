@@ -16,7 +16,7 @@
 mod bridge;
 pub use bridge::generate;
 
-use crate::config::MODELS_BASE_URL;
+use crate::config::LLM_BASE_URL;
 use crate::paths::get_app_data_dir;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -27,7 +27,7 @@ use tokio::process::Command;
 /// Manifest listing every file to fetch (CDN-relative `url` + local `dest` +
 /// `size` + `sha256`). Version-prefixed so a future mlx bump can ship without
 /// breaking installed clients.
-const MANIFEST_URL: &str = "https://d17sbkyjhl5fws.cloudfront.net/mlx/v1/manifest.json";
+const MANIFEST_URL: &str = "https://d17sbkyjhl5fws.cloudfront.net/llm/v1/manifest.json";
 
 pub fn mlx_dir() -> PathBuf {
     get_app_data_dir().join("mlx")
@@ -62,7 +62,7 @@ struct Manifest {
 
 #[derive(Deserialize)]
 struct FileEntry {
-    /// CDN path relative to `MODELS_BASE_URL`.
+    /// Path relative to `LLM_BASE_URL` (e.g. `v1/model/…`).
     url: String,
     /// Local path relative to `mlx_dir()`.
     dest: String,
@@ -156,7 +156,7 @@ async fn download_file(
     base_done: u64,
     total: u64,
 ) -> Result<(), String> {
-    let url = format!("{MODELS_BASE_URL}/{url_suffix}");
+    let url = format!("{LLM_BASE_URL}/{url_suffix}");
     let tmp = dest.with_extension("part");
 
     let mut child = Command::new("curl")

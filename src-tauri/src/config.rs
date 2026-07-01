@@ -1,20 +1,31 @@
 //! Configuration for audio recording and transcription.
 
-/// Base URL of the self-hosted model CDN. A file URL is `{BASE}/{key}` where
-/// `key` is a manifest entry (already version-prefixed, e.g.
-/// `v1/parakeet-ja/...`). No trailing slash.
+/// CDN host root. Assets are grouped by domain under it: `asr/…` (speech
+/// models) and `llm/…` (the on-device summary runtime + weights).
 ///
 /// Served via CloudFront in front of the private S3 bucket (`meeting-noter`,
 /// ap-southeast-1) — origin access is locked to CloudFront (OAC), so the raw
 /// S3 URL returns 403. CloudFront caches + the 1 TB/mo free tier keeps egress
 /// cheap. Direct S3 URLs no longer work; always go through the CDN.
-pub const MODELS_BASE_URL: &str = "https://d17sbkyjhl5fws.cloudfront.net";
+pub const CDN_BASE_URL: &str = "https://d17sbkyjhl5fws.cloudfront.net";
 
-/// URL of the manifest listing every model file (path + size + sha256), grouped
-/// by language. Bump the `v1` prefix here and in the bucket to ship new weights
-/// without breaking already-installed clients.
+/// Base URL for ASR model files. A file URL is `{BASE}/{key}` where `key` is a
+/// manifest entry of the form `<version>/<repo>/...` (e.g. `v1/parakeet-ja/…`).
+/// FluidAudio derives its on-disk cache layout by stripping the leading version
+/// component, so the `asr/` domain prefix lives here in the base — NOT in the
+/// keys — to keep that stripping (and the shipped Swift bridge) unchanged.
+pub const MODELS_BASE_URL: &str = "https://d17sbkyjhl5fws.cloudfront.net/asr";
+
+/// URL of the ASR manifest listing every model file, grouped by language. Bump
+/// the `v1` here and in the bucket to ship new weights without breaking
+/// already-installed clients.
 pub const MODELS_MANIFEST_URL: &str =
-    "https://d17sbkyjhl5fws.cloudfront.net/v1/manifest.json";
+    "https://d17sbkyjhl5fws.cloudfront.net/asr/v1/manifest.json";
+
+/// Base URL for the on-device LLM assets (runtime dylib + metallib + weights).
+/// Manifest `url`s are `<version>/...` (e.g. `v1/model/…`); the `llm/` domain
+/// prefix lives here in the base, mirroring [`MODELS_BASE_URL`] for ASR.
+pub const LLM_BASE_URL: &str = "https://d17sbkyjhl5fws.cloudfront.net/llm";
 
 /// Which transcription engine to use.
 ///

@@ -1,8 +1,0 @@
-# Build output — the dylib + metallib are distributed via S3, not committed.
-.build/
-.swiftpm/
-dd/
-*.dylib
-*.metallib
-xcb.log
-Package.resolved
