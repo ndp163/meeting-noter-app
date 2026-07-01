@@ -26,6 +26,10 @@ on:
 jobs:
   release:
     runs-on: macos-latest
+    # tauri-action calls `notarytool --wait` with no timeout, so a stuck Apple
+    # notary submission would otherwise hang the runner until the 6h hard limit.
+    # Fail fast instead — a healthy notarize finishes well within this.
+    timeout-minutes: 45
     permissions:
       contents: write
     steps:
