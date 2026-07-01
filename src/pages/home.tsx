@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { listen, emit } from "@tauri-apps/api/event";
 import { Sidebar } from "@/features/home/sidebar";
 import { MainContent } from "@/features/home/main-content";
 import {
@@ -72,6 +72,7 @@ export const HomePage = () => {
   const getCurrentMeeting = useBoundStore.use.getCurrentMeeting();
   const getCapturingMeeting = useBoundStore.use.getCapturingMeeting();
   const captureLanguage = useBoundStore.use.captureLanguage();
+  const openSettings = useBoundStore.use.openSettings();
 
   const currentMeeting = getCurrentMeeting();
   const messages = currentMeeting?.transcript || [];
@@ -544,10 +545,26 @@ export const HomePage = () => {
       }
     }).then((release) => unlisteners.push(release));
 
+    // Tray menu's Start/Stop item routes back through the same toggle.
+    listen("tray://toggle-recording", () => {
+      if (!isCaptureBusy) {
+        void handleCaptureToggle();
+      }
+    }).then((release) => unlisteners.push(release));
+
+    listen("tray://settings", () => {
+      openSettings();
+    }).then((release) => unlisteners.push(release));
+
     return () => {
       unlisteners.forEach((u) => u());
     };
   }, [isCapturing, isCaptureBusy]);
+
+  // Mirror recording state into the tray menu (header, Start/Stop, icon).
+  useEffect(() => {
+    void emit("tray://recording-state", { active: isCapturing });
+  }, [isCapturing]);
 
   return (
     <div className="relative flex h-screen ds-root ds-theme-vintage bg-[var(--ds-bg)]">
