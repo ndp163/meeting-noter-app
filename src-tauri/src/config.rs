@@ -1,13 +1,11 @@
 //! Configuration for audio recording and transcription.
 
-/// CDN host root. Assets are grouped by domain under it: `asr/…` (speech
-/// models) and `llm/…` (the on-device summary runtime + weights).
-///
-/// Served via CloudFront in front of the private S3 bucket (`meeting-noter`,
-/// ap-southeast-1) — origin access is locked to CloudFront (OAC), so the raw
-/// S3 URL returns 403. CloudFront caches + the 1 TB/mo free tier keeps egress
-/// cheap. Direct S3 URLs no longer work; always go through the CDN.
-pub const CDN_BASE_URL: &str = "https://d17sbkyjhl5fws.cloudfront.net";
+// Model assets are served from one CloudFront distribution
+// (`https://d17sbkyjhl5fws.cloudfront.net`) in front of the private S3 bucket
+// (`meeting-noter`, ap-southeast-1); origin access is locked to CloudFront
+// (OAC), so raw S3 URLs 403. Assets are grouped by domain: `asr/…` (speech
+// models) and `llm/…` (the on-device summary runtime + weights) — the domain
+// prefix lives in each base URL below, not in the manifest keys.
 
 /// Base URL for ASR model files. A file URL is `{BASE}/{key}` where `key` is a
 /// manifest entry of the form `<version>/<repo>/...` (e.g. `v1/parakeet-ja/…`).
