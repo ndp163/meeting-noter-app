@@ -37,9 +37,10 @@ flips that:
 - 🌐 **Multi-language ASR** — English and Japanese today (more planned).
 - 🔔 **Meeting auto-detect** — optional overlay when a meeting starts.
 - 💾 **Local-first storage** — each meeting is `audio.wav` / `mic.wav` /
-  `speaker.wav` / `meeting.json` in a directory you control.
+  `speaker.wav` / `data.json` in a directory you control.
 - 🤖 **AI summaries (optional)** — TL;DR, key points, decisions, and action
-  items, generated locally via the Claude Code CLI. See below.
+  items, plus Vietnamese translation. Two providers: a fully-offline on-device
+  model, or the Claude Code CLI (needs network). See below.
 
 ## Requirements
 
@@ -57,19 +58,26 @@ app downloads the on-device models, then you're ready.
 ## AI summaries (optional)
 
 Transcription is fully offline and needs nothing extra. The **AI summary** tab
-is the one optional feature with an external dependency: it shells out to the
+has two providers, selectable in Settings:
+
+**Local (on-device, fully offline)** — an MLX model that runs entirely on your
+machine. Download it once from Settings → Models; after that summaries need no
+network. This keeps the offline promise end-to-end.
+
+**Claude Code CLI (needs network)** — shells out to the
 [Claude Code CLI](https://docs.claude.com/en/docs/claude-code/setup) installed on
 your own machine — the command-line `claude` binary, **not** the Claude desktop
-app.
+app. This is the one path that leaves your machine.
 
-- The transcript is piped to the local `claude` binary on stdin — it goes to
-  Claude Code, not to this app's servers (there are none). No API key is stored
-  by Meeting Noter; it reuses your existing Claude Code login.
-- To enable: install Claude Code, run `claude login`, then open the Summary tab
-  and reopen it. The app auto-detects the `claude` binary in the usual install
-  locations.
-- If `claude` isn't found, the Summary tab tells you and links to the install
-  page. Everything else in the app keeps working without it.
+- With the Claude provider, the transcript is piped to the local `claude` binary
+  on stdin — it goes to Claude Code (Anthropic's cloud), not to this app's servers
+  (there are none). No API key is stored by Meeting Noter; it reuses your existing
+  Claude Code login.
+- To enable Claude: install Claude Code, run `claude login`, then open the Summary
+  tab and reopen it. The app auto-detects the `claude` binary in the usual install
+  locations. If `claude` isn't found, the Summary tab tells you and links to the
+  install page.
+- Either way, everything else in the app keeps working without a summary provider.
 
 ## Architecture
 

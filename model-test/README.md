@@ -1,52 +1,52 @@
 # FluidAudio Parakeet v2 Test Suite
 
-Bộ test cho model **Parakeet TDT v2** từ [FluidInference/FluidAudio](https://github.com/FluidInference/FluidAudio) với hỗ trợ VAD (Voice Activity Detection) và streaming real-time.
+Test suite for the **Parakeet TDT v2** model from [FluidInference/FluidAudio](https://github.com/FluidInference/FluidAudio) with support for VAD (Voice Activity Detection) and real-time streaming.
 
-## 📋 Tính năng
+## 📋 Features
 
-Repo này cung cấp 3 chương trình test:
+This repo provides 3 test programs:
 
-1. **BatchTranscribeTest** - Batch transcription đơn giản
-2. **VadStreamTest** - Real-time VAD streaming để phát hiện giọng nói
-3. **StreamingTranscribeTest** - Streaming transcription với VAD-guided chunking
+1. **BatchTranscribeTest** - Simple batch transcription
+2. **VadStreamTest** - Real-time VAD streaming for speech detection
+3. **StreamingTranscribeTest** - Streaming transcription with VAD-guided chunking
 
-## 🔧 Yêu cầu hệ thống
+## 🔧 System Requirements
 
-- **macOS 13.0+** (FluidAudio chỉ hỗ trợ macOS/iOS)
-- **Xcode 15.0+** hoặc Swift 5.9+
-- **Apple Silicon (M1/M2/M3)** được khuyến nghị để tận dụng Apple Neural Engine
+- **macOS 13.0+** (FluidAudio only supports macOS/iOS)
+- **Xcode 15.0+** or Swift 5.9+
+- **Apple Silicon (M1/M2/M3)** recommended to take advantage of the Apple Neural Engine
 
-## 📦 Cài đặt
+## 📦 Installation
 
-### 1. Clone hoặc download repository này
+### 1. Clone or download this repository
 
 ```bash
 cd /Users/phuc.nguyendinh/personal/meeting-noter-app/model-test
 ```
 
-### 2. Build project
+### 2. Build the project
 
 ```bash
 swift build
 ```
 
-Lần đầu tiên sẽ:
+The first time it will:
 
-- Download FluidAudio SDK từ GitHub
-- Download các model CoreML từ HuggingFace (parakeet-v2, silero-vad)
-- Compile models
+- Download the FluidAudio SDK from GitHub
+- Download the CoreML models from HuggingFace (parakeet-v2, silero-vad)
+- Compile the models
 
-## 🚀 Sử dụng
+## 🚀 Usage
 
-### Test 1: Batch Transcription (Đơn giản nhất)
+### Test 1: Batch Transcription (Simplest)
 
-Transcribe toàn bộ file audio một lần:
+Transcribe the entire audio file at once:
 
 ```bash
 swift run BatchTranscribeTest ~/audio/meeting.wav
 ```
 
-**Output mẫu:**
+**Sample output:**
 
 ```
 === FluidAudio Parakeet v2 Batch Transcription Test ===
@@ -83,15 +83,15 @@ TRANSCRIPTION RESULTS
 ✅ Test completed successfully!
 ```
 
-### Test 2: VAD Streaming (Phát hiện giọng nói)
+### Test 2: VAD Streaming (Speech Detection)
 
-Simulate real-time streaming với Voice Activity Detection:
+Simulate real-time streaming with Voice Activity Detection:
 
 ```bash
 swift run VadStreamTest ~/audio/meeting.wav
 ```
 
-**Output mẫu:**
+**Sample output:**
 
 ```
 === FluidAudio VAD Real-time Streaming Test ===
@@ -135,19 +135,19 @@ VAD ANALYSIS SUMMARY
 ✅ Test completed successfully!
 ```
 
-### Test 3: Streaming Transcription với VAD (Real-time)
+### Test 3: Streaming Transcription with VAD (Real-time)
 
-Kết hợp VAD và ASR để transcribe theo segments:
+Combine VAD and ASR to transcribe by segments:
 
 ```bash
-# Sử dụng model v2 (English-only, recall cao nhất)
+# Use the v2 model (English-only, highest recall)
 swift run StreamingTranscribeTest ~/audio/meeting.wav --model-version v2
 
-# Hoặc model v3 (Multilingual, 25 ngôn ngữ châu Âu)
+# Or the v3 model (Multilingual, 25 European languages)
 swift run StreamingTranscribeTest ~/audio/meeting.wav --model-version v3
 ```
 
-**Output mẫu:**
+**Sample output:**
 
 ```
 === FluidAudio Real-time Streaming Transcription Test ===
@@ -217,58 +217,58 @@ PERFORMANCE SUMMARY
 ✅ Test completed successfully!
 ```
 
-## 📝 Chi tiết về Models
+## 📝 Model Details
 
 ### Parakeet TDT v2 (English-only)
 
 - **Model**: `FluidInference/parakeet-tdt-0.6b-v2-coreml`
-- **Ngôn ngữ**: Tiếng Anh
-- **Ưu điểm**: Recall cao nhất cho tiếng Anh
-- **Performance**: ~190x RTF trên M4 Pro
-- **Kích thước**: ~600MB
+- **Language**: English
+- **Advantage**: Highest recall for English
+- **Performance**: ~190x RTF on M4 Pro
+- **Size**: ~600MB
 
 ### Parakeet TDT v3 (Multilingual)
 
 - **Model**: `FluidInference/parakeet-tdt-0.6b-v3-coreml`
-- **Ngôn ngữ**: 25 ngôn ngữ châu Âu
-- **Performance**: ~190x RTF trên M4 Pro
-- **Kích thước**: ~600MB
+- **Languages**: 25 European languages
+- **Performance**: ~190x RTF on M4 Pro
+- **Size**: ~600MB
 
 ### Silero VAD
 
 - **Model**: `FluidInference/silero-vad-coreml`
-- **Tính năng**: Voice Activity Detection
-- **Performance**: ~1200x RTF trên M2
-- **Kích thước**: ~5MB
+- **Feature**: Voice Activity Detection
+- **Performance**: ~1200x RTF on M2
+- **Size**: ~5MB
 
 ## 🎯 Use Cases
 
 ### 1. Meeting Transcription
 
 ```bash
-# Transcribe cuộc họp với timestamps chi tiết
+# Transcribe a meeting with detailed timestamps
 swift run StreamingTranscribeTest ~/Recordings/meeting.wav --model-version v2
 ```
 
 ### 2. Podcast Processing
 
 ```bash
-# Batch transcription cho podcast
+# Batch transcription for a podcast
 swift run BatchTranscribeTest ~/Podcasts/episode-123.mp3
 ```
 
 ### 3. Voice Activity Analysis
 
 ```bash
-# Phân tích khi nào có người nói
+# Analyze when someone is speaking
 swift run VadStreamTest ~/Audio/conversation.wav
 ```
 
 ### 4. Real-time Dictation
 
 ```bash
-# Ghi âm từ microphone và transcribe real-time
-# (cần code thêm để capture audio từ mic)
+# Record from the microphone and transcribe in real-time
+# (needs extra code to capture audio from the mic)
 swift run StreamingTranscribeTest ~/Recordings/dictation.wav --model-version v2
 ```
 
@@ -276,27 +276,27 @@ swift run StreamingTranscribeTest ~/Recordings/dictation.wav --model-version v2
 
 ### VAD Configuration
 
-Trong code có thể điều chỉnh các tham số VAD:
+The VAD parameters can be adjusted in code:
 
 ```swift
 var segmentConfig = VadSegmentationConfig.default
-segmentConfig.minSpeechDuration = 0.5  // Tối thiểu 0.5s mới coi là speech
-segmentConfig.minSilenceDuration = 0.3  // 0.3s im lặng để tách segments
-segmentConfig.speechPadding = 0.1      // Thêm 0.1s padding
-segmentConfig.threshold = 0.5          // Ngưỡng probability (0-1)
+segmentConfig.minSpeechDuration = 0.5  // At least 0.5s to count as speech
+segmentConfig.minSilenceDuration = 0.3  // 0.3s of silence to split segments
+segmentConfig.speechPadding = 0.1      // Add 0.1s of padding
+segmentConfig.threshold = 0.5          // Probability threshold (0-1)
 ```
 
 **Recommendations:**
 
 - **Meeting transcription**: minSpeechDuration=0.5, minSilenceDuration=0.3
 - **Dictation**: minSpeechDuration=0.25, minSilenceDuration=0.5
-- **Noisy environment**: threshold=0.6 hoặc 0.7
+- **Noisy environment**: threshold=0.6 or 0.7
 
 ### ASR Configuration
 
 ```swift
 let config = AsrConfig(
-    computeUnits: .cpuAndNeuralEngine,  // Sử dụng ANE để tối ưu
+    computeUnits: .cpuAndNeuralEngine,  // Use the ANE for optimization
     maxAudioLength: 30.0                // Max 30s per chunk
 )
 ```
@@ -305,13 +305,13 @@ let config = AsrConfig(
 
 ### M4 Pro (2024)
 
-- **Parakeet v2**: ~190x RTF (1 giờ audio → ~19 giây)
+- **Parakeet v2**: ~190x RTF (1 hour of audio → ~19 seconds)
 - **VAD**: ~1200x RTF
 - **Combined (VAD + ASR)**: ~165x RTF
 
 ### M2 (2022)
 
-- **Parakeet v2**: ~120x RTF (1 giờ audio → ~30 giây)
+- **Parakeet v2**: ~120x RTF (1 hour of audio → ~30 seconds)
 - **VAD**: ~1220x RTF
 - **Combined (VAD + ASR)**: ~110x RTF
 
@@ -326,8 +326,8 @@ let config = AsrConfig(
 ### Error: "Models not found"
 
 ```bash
-# Models sẽ tự động download lần đầu chạy
-# Nếu network bị block, set proxy:
+# Models are downloaded automatically on first run
+# If the network is blocked, set a proxy:
 export https_proxy=http://your-proxy:port
 swift run BatchTranscribeTest audio.wav
 ```
@@ -335,49 +335,49 @@ swift run BatchTranscribeTest audio.wav
 ### Error: "File not found"
 
 ```bash
-# Kiểm tra đường dẫn file
+# Check the file path
 ls -la ~/audio/meeting.wav
 
-# Hoặc dùng đường dẫn tuyệt đối
+# Or use an absolute path
 swift run BatchTranscribeTest /Users/phuc/audio/meeting.wav
 ```
 
 ### Error: "Cannot load model"
 
 ```bash
-# Xóa cache và download lại
+# Clear the cache and re-download
 rm -rf ~/.cache/fluidaudio/Models
 swift run BatchTranscribeTest audio.wav
 ```
 
-### Performance quá chậm
+### Performance too slow
 
 ```bash
-# Kiểm tra đang chạy trên ANE chưa
-# Mở Activity Monitor > CPU > Tìm process
-# Nếu CPU usage cao → không dùng ANE
+# Check whether it's running on the ANE
+# Open Activity Monitor > CPU > Find the process
+# If CPU usage is high → the ANE is not being used
 
-# Solution: Đảm bảo model đã compile đúng
+# Solution: Make sure the model compiled correctly
 swift build -c release
 swift run -c release BatchTranscribeTest audio.wav
 ```
 
-## 🧠 Chi tiết Logic xử lý Real-time Transcription
+## 🧠 Real-time Transcription Processing Logic in Detail
 
 ### Overview
 
-Hệ thống sử dụng **VAD (Voice Activity Detection)** để phát hiện voice → **ASR (Automatic Speech Recognition)** để transcribe, với 2 chế độ:
+The system uses **VAD (Voice Activity Detection)** to detect voice → **ASR (Automatic Speech Recognition)** to transcribe, with 2 modes:
 
-- **Streaming**: Transcribe liên tục trong khi nói (real-time feedback)
-- **Final**: Transcribe toàn bộ sau khi kết thúc nói (chính xác nhất)
+- **Streaming**: Transcribe continuously while speaking (real-time feedback)
+- **Final**: Transcribe everything after speaking ends (most accurate)
 
 ### State Machine
 
 **States:**
 
-1. **IDLE**: `isSpeaking=false` - Đang chờ, không nói
-2. **SPEAKING**: `isSpeaking=true` - Đang trong speech session
-3. **SILENCE_IN_SPEECH**: `isSpeaking=true` + `silenceFrameCount>0` - Im lặng tạm thời
+1. **IDLE**: `isSpeaking=false` - Waiting, not speaking
+2. **SPEAKING**: `isSpeaking=true` - In a speech session
+3. **SILENCE_IN_SPEECH**: `isSpeaking=true` + `silenceFrameCount>0` - Temporarily silent
 
 **Transitions:**
 
@@ -388,7 +388,7 @@ IDLE
 
 SPEAKING
   → [strong voice prob>0.35 + buffer≥0.25s]
-  → Launch Streaming Transcription (không clear buffer)
+  → Launch Streaming Transcription (do not clear buffer)
   → Stay in SPEAKING
 
 SPEAKING
@@ -425,14 +425,14 @@ Native rate: 48kHz (Mac) → ~85ms/chunk
 
 ```swift
 processStreamingChunk() → VadResult
-- probability: 0.0-1.0 (xác suất có voice)
+- probability: 0.0-1.0 (probability of voice)
 - state: Streaming state for context
 ```
 
 **Thresholds:**
 
 - `probability > 0.35` → Strong voice ✅ Trigger streaming transcription
-- `probability > 0.25` → Weak voice 🟡 Buffer only (không transcribe)
+- `probability > 0.25` → Weak voice 🟡 Buffer only (no transcription)
 - `probability ≤ 0.25` → No voice ⚪️ Silence
 
 ### Buffer Management
@@ -441,8 +441,8 @@ processStreamingChunk() → VadResult
 
 ```swift
 bufferLock: NSLock
-- Lock mọi thao tác append/copy/clear
-- Tránh race condition giữa audio thread và transcribe tasks
+- Lock every append/copy/clear operation
+- Avoid race conditions between the audio thread and transcribe tasks
 ```
 
 **Buffer Operations:**
@@ -452,8 +452,8 @@ bufferLock: NSLock
 | Speech start      | `speechBuffer = []`             | ✅                          | ✅   |
 | Voice detected    | `append(samples)`               | ❌                          | ✅   |
 | Silence in speech | `append(samples)` (if count≤16) | ❌                          | ✅   |
-| Streaming trigger | `copy()` buffer                 | ❌ (giữ để transcribe tiếp) | ✅   |
-| Final trigger     | `copy()` + `clear()`            | ✅ (chuẩn bị segment mới)   | ✅   |
+| Streaming trigger | `copy()` buffer                 | ❌ (keep to keep transcribing) | ✅   |
+| Final trigger     | `copy()` + `clear()`            | ✅ (prepare a new segment)   | ✅   |
 
 **Buffer Limits:**
 
@@ -475,18 +475,18 @@ if isStrongVoice
 **Process:**
 
 1. 🔒 Lock buffer
-2. 📋 Copy buffer (toàn bộ audio từ đầu đến giờ)
-3. 🔓 Unlock (KHÔNG clear - tiếp tục tích lũy)
+2. 📋 Copy buffer (all audio from the start until now)
+3. 🔓 Unlock (do NOT clear - keep accumulating)
 4. 🎯 Enqueue to serial `transcriptionQueue`
 5. 🔄 ASR transcribe async
-6. 📝 Update UI với partial result
+6. 📝 Update UI with partial result
 
 **Characteristics:**
 
-- **Frequency**: Mỗi khi có strong voice + đủ buffer
+- **Frequency**: Every time there is strong voice + enough buffer
 - **Latency**: ~50-100ms
-- **Purpose**: Real-time feedback cho user
-- **Accuracy**: Tốt nhưng có thể thay đổi khi thêm context
+- **Purpose**: Real-time feedback for the user
+- **Accuracy**: Good but may change as more context is added
 
 ### Final Transcription
 
@@ -501,8 +501,8 @@ if isSpeaking
 **Process:**
 
 1. 🔒 Lock buffer
-2. 📋 Copy toàn bộ buffer (complete speech segment)
-3. 🗑️ Clear buffer ngay lập tức
+2. 📋 Copy the entire buffer (complete speech segment)
+3. 🗑️ Clear the buffer immediately
 4. 🔓 Unlock
 5. 🎯 Enqueue to serial `transcriptionQueue`
 6. 🔄 ASR transcribe async
@@ -511,10 +511,10 @@ if isSpeaking
 
 **Characteristics:**
 
-- **Frequency**: 1 lần khi kết thúc speech
+- **Frequency**: Once when speech ends
 - **Latency**: ~60-80ms
-- **Purpose**: Kết quả chính xác nhất
-- **Accuracy**: Cao nhất (full context từ đầu đến cuối)
+- **Purpose**: Most accurate result
+- **Accuracy**: Highest (full context from start to end)
 
 ### Silence Detection
 
@@ -522,22 +522,22 @@ if isSpeaking
 
 ```swift
 silenceFrameCount = 0                    // Init
-hasVoice → silenceFrameCount = 0         // Reset khi có voice
-!hasVoice + isSpeaking → silenceFrameCount++ // Đếm silence trong speech
+hasVoice → silenceFrameCount = 0         // Reset when voice is present
+!hasVoice + isSpeaking → silenceFrameCount++ // Count silence within speech
 ```
 
 **Timeout:**
 
 ```
 silenceThreshold = 16 chunks
-@ 48kHz native: 16 × ~85ms ≈ 1.4s (nhưng VAD output slower)
+@ 48kHz native: 16 × ~85ms ≈ 1.4s (but VAD output slower)
 Effective timeout: ~4 seconds
 ```
 
 **During Silence:**
 
-- **Count ≤ 16**: Continue buffering (cho phép pause trong câu)
-- **Count > 16**: Trigger Final + reset toàn bộ state
+- **Count ≤ 16**: Continue buffering (allow pauses within a sentence)
+- **Count > 16**: Trigger Final + reset all state
 
 ### Concurrency Control
 
@@ -545,8 +545,8 @@ Effective timeout: ~4 seconds
 
 ```swift
 bufferLock: NSLock
-- Serialize tất cả buffer access
-- Tránh race condition
+- Serialize all buffer access
+- Avoid race conditions
 ```
 
 **2. Transcription Queue:**
@@ -554,8 +554,8 @@ bufferLock: NSLock
 ```swift
 transcriptionQueue: Serial DispatchQueue
 - QoS: .userInitiated
-- Process transcriptions tuần tự
-- Tránh model contention
+- Process transcriptions sequentially
+- Avoid model contention
 ```
 
 **3. Active Transcription Limit:**
@@ -563,7 +563,7 @@ transcriptionQueue: Serial DispatchQueue
 ```swift
 maxConcurrentTranscriptions = 3
 activeTranscriptions counter
-- Ngăn overload
+- Prevent overload
 - Graceful degradation
 ```
 
@@ -573,13 +573,13 @@ activeTranscriptions counter
 isSpeaking = false                    // Exit speech mode
 silenceFrameCount = 0                 // Reset silence counter
 currentTranscript = ""                // Clear display
-speechBuffer = []                     // Clear buffer (đã clear trước đó)
+speechBuffer = []                     // Clear buffer (already cleared earlier)
 skippedShortAudio = 0                 // Reset debug counters
 skippedLowVAD = 0
 vadState = makeStreamState()          // Fresh VAD state
 ```
 
-**Purpose:** Bắt đầu hoàn toàn sạch cho speech segment tiếp theo, tránh state cũ ảnh hưởng.
+**Purpose:** Start completely clean for the next speech segment, avoiding stale state interference.
 
 ### Complete Timeline Example
 
@@ -609,32 +609,32 @@ T=7.5s:  ⚪️ Silence, isSpeaking=false (ready for next speech)
 
 ### Key Design Decisions
 
-1. **Streaming KHÔNG clear buffer**: Để có full context cho lần transcribe tiếp theo, tăng accuracy
-2. **Final clear buffer ngay**: Tránh reuse stale data cho segment mới
-3. **Serial queue**: Tránh model conflict, đảm bảo order
-4. **VAD state reset**: Tránh state cũ ảnh hưởng segment mới
-5. **Lock protection**: Thread-safe cho buffer shared giữa audio thread và transcribe tasks
-6. **4s silence threshold**: Balance giữa tự nhiên (cho phép pause) và responsive
+1. **Streaming does NOT clear the buffer**: To have full context for the next transcription, increasing accuracy
+2. **Final clears the buffer immediately**: Avoid reusing stale data for a new segment
+3. **Serial queue**: Avoid model conflicts, guarantee ordering
+4. **VAD state reset**: Avoid old state interfering with a new segment
+5. **Lock protection**: Thread-safe for the buffer shared between the audio thread and transcribe tasks
+6. **4s silence threshold**: Balance between natural (allowing pauses) and responsive
 
 ### Critical Bug Fixes
 
-**Vấn đề ban đầu:** Buffer 0.9s (14400 samples) gây lỗi "Invalid audio data" sau Final transcription
+**Original problem:** A 0.9s buffer (14400 samples) caused an "Invalid audio data" error after Final transcription
 
-**Nguyên nhân:**
+**Cause:**
 
-1. Buffer không được protect bằng lock → race condition
-2. VAD state không reset sau Final → state corruption
-3. Counters không reset → logic sai ở segment tiếp theo
+1. The buffer was not protected by a lock → race condition
+2. VAD state was not reset after Final → state corruption
+3. Counters were not reset → wrong logic on the next segment
 
-**Giải pháp đã implement:**
+**Solution implemented:**
 
-1. ✅ Thêm NSLock cho tất cả buffer operations
-2. ✅ Reset VAD state sau mỗi Final
-3. ✅ Reset tất cả counters (skippedShortAudio, skippedLowVAD)
-4. ✅ Serial queue thay vì Task.detached
-5. ✅ Clear buffer ngay sau copy trong Final mode
+1. ✅ Added an NSLock for all buffer operations
+2. ✅ Reset VAD state after each Final
+3. ✅ Reset all counters (skippedShortAudio, skippedLowVAD)
+4. ✅ Serial queue instead of Task.detached
+5. ✅ Clear the buffer immediately after copy in Final mode
 
-## 🔗 Tài liệu tham khảo
+## 🔗 References
 
 - **FluidAudio GitHub**: https://github.com/FluidInference/FluidAudio
 - **Documentation**: https://github.com/FluidInference/FluidAudio/tree/main/Documentation
@@ -643,7 +643,7 @@ T=7.5s:  ⚪️ Silence, isSpeaking=false (ready for next speech)
 
 ## 📄 License
 
-Code examples này sử dụng FluidAudio SDK (Apache 2.0 License).
+These code examples use the FluidAudio SDK (Apache 2.0 License).
 
 ## 🙏 Credits
 
@@ -653,10 +653,10 @@ Code examples này sử dụng FluidAudio SDK (Apache 2.0 License).
 
 ---
 
-**Note**: Đây là test implementation. Để production cần thêm:
+**Note**: This is a test implementation. For production you also need:
 
-- Error handling tốt hơn
-- Support cho nhiều audio formats
+- Better error handling
+- Support for more audio formats
 - Real-time microphone capture
 - Streaming output to file/API
 - GPU acceleration options

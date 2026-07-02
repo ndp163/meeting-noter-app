@@ -22,7 +22,7 @@ lucide-react · Tauri 2.
 |---|---|
 | Frontend dev | `pnpm dev` |
 | Full app dev | `pnpm tauri dev` |
-| Build | `pnpm build` (`tsc && vite build`) |
+| Build | `pnpm build` (`tsc && node scripts/check-styles.mjs && vite build`) |
 | Storybook | `pnpm storybook` |
 | Style guard | `pnpm lint:styles` (also runs inside `pnpm build`) |
 | Rust | `cargo …` inside `src-tauri/` |

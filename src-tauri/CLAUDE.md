@@ -10,13 +10,14 @@ Don't touch model weight files.
 
 **Swift bridge prerequisite:** `build.rs` links the prebuilt
 `lib/libFluidAudioBridge.dylib` and **panics if it's missing**. Build it first:
-`swift build -c release` (produces the dylib from `src/swift/FluidAudio.swift`).
+`swift build -c release` (produces the dylib from `src/bridges/swift/FluidAudio.swift`).
 Re-run after changing the Swift source.
 
 ## Layout
 
 - `commands/` — Tauri `invoke` handlers, one module per domain (transcription,
-  meetings, diarization, detection, setup, summary), registered in `mod.rs`.
+  meetings, diarization, detection, setup, summary, mlx, settings), registered
+  in `mod.rs`.
 - `session.rs` — `RecorderState`, event emit. `recorder.rs` — `AudioRecorder`.
 - `audio/` — capture (CoreAudio mic/speaker) · processing (mixer + resampler) ·
   transcription (pipeline + segmenter).

@@ -1,26 +1,28 @@
 # Transcription Engines
 
-## Hiện tại
+## Current
 
-App dùng **FluidAudio** (NVIDIA Parakeet ASR + Silero VAD), chạy on-device qua
-Swift bridge. Chỉ hỗ trợ tiếng Anh, nhưng nhanh và độ chính xác cao.
+The app uses **FluidAudio** (NVIDIA Parakeet ASR + Silero VAD), running on-device
+via a Swift bridge. It supports English (Parakeet v2) and Japanese (Parakeet
+tdtJa, ~600MB) — selected by `language`; the engine reloads automatically when
+switching EN↔JA.
 
-Engine được chọn qua `EngineType` trong [src/config.rs](src/config.rs); mặc định
-là `EngineType::FluidAudio`.
+The engine is selected via `EngineType` in [src/config.rs](src/config.rs); the
+default is `EngineType::FluidAudio`.
 
-## Kiến trúc
+## Architecture
 
-Pipeline không bao giờ gọi trực tiếp một engine cụ thể. Nó nói chuyện qua 2 trait
-trong [src/bridges/mod.rs](src/bridges/mod.rs):
+The pipeline never calls a specific engine directly. It talks through 2 traits in
+[src/bridges/mod.rs](src/bridges/mod.rs):
 
 ```
 SpeechRecognizer   // audio -> text  (initialize, transcribe, is_initialized)
 VoiceDetector      // audio -> voice probability  (create_stream, process, destroy_stream)
 ```
 
-Một `Transcriber { asr, vad }` gói 2 trait này lại. Với FluidAudio cả hai `Arc`
-trỏ về cùng một instance; với model chỉ-ASR thì `vad` có thể trỏ tới một detector
-riêng.
+A `Transcriber { asr, vad }` wraps these 2 traits. For FluidAudio both `Arc`s
+point to the same instance; for an ASR-only model, `vad` can point to a separate
+detector.
 
 ```
 AudioRecorder
@@ -28,26 +30,26 @@ AudioRecorder
          │
          ▼
   transcription::pipeline::run
-     ├── VoiceDetector::process   -> voice probability mỗi chunk
-     ├── Segmenter                 -> gom speech thành Partial / Segment / Sentence
-     └── SpeechRecognizer::transcribe (worker tuần tự per stream, throttle Partial)
+     ├── VoiceDetector::process   -> voice probability per chunk
+     ├── Segmenter                 -> group speech into Partial / Segment / Sentence
+     └── SpeechRecognizer::transcribe (sequential worker per stream, throttle Partial)
 ```
 
 `Segmenter` ([src/audio/transcription/segmenter.rs](src/audio/transcription/segmenter.rs))
-là một state machine thuần, không phụ thuộc engine — nên đổi model không ảnh hưởng
-logic cắt câu.
+is a pure state machine, engine-independent — so swapping the model does not
+affect the sentence-splitting logic.
 
-## Thêm một engine mới
+## Adding a new engine
 
-Đúng 3 bước, một chỗ duy nhất để "đấu dây":
+Exactly 3 steps, one single place to "wire it up":
 
-1. Tạo struct mới (vd. `WhisperKit`) và `impl SpeechRecognizer` (+ `impl
-   VoiceDetector` nếu engine tự có VAD; nếu không, dùng lại VAD của FluidAudio).
-2. Thêm một arm vào `enum EngineType` trong [src/config.rs](src/config.rs).
-3. Thêm một `match` case trong `create_transcriber()` ở
+1. Create a new struct (e.g. `WhisperKit`) and `impl SpeechRecognizer` (+ `impl
+   VoiceDetector` if the engine has its own VAD; if not, reuse FluidAudio's VAD).
+2. Add an arm to `enum EngineType` in [src/config.rs](src/config.rs).
+3. Add a `match` case in `create_transcriber()` in
    [src/bridges/mod.rs](src/bridges/mod.rs).
 
-Pipeline, recorder, commands và frontend **không cần đổi gì**.
+The pipeline, recorder, commands, and frontend **need no changes**.
 
 ## Build
 
@@ -57,9 +59,9 @@ cd src-tauri
 cargo build             # build Rust
 ```
 
-> Nếu `build-swift.sh` báo lỗi `cannot use bare repository ... safe.bareRepository
-> is 'explicit'`, đó là xung đột giữa git config global và cache của SwiftPM. Chạy
-> kèm env (không đổi global config):
+> If `build-swift.sh` reports the error `cannot use bare repository ... safe.bareRepository
+> is 'explicit'`, that's a conflict between the global git config and SwiftPM's
+> cache. Run it with the env set (without changing the global config):
 >
 > ```bash
 > GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.bareRepository \
@@ -68,13 +70,13 @@ cargo build             # build Rust
 
 ## Troubleshooting
 
-- **FluidAudio không khởi tạo**: cần macOS >= 14.0, đã chạy `./build-swift.sh`,
-  và xem log trong console.
-- **Init chậm lần đầu**: model được tải về và cache; lần sau nhanh hơn.
-- **Engine fail**: app vẫn record audio (ghi WAV) nhưng không có transcript.
-  Kiểm tra quyền micro/loa.
+- **FluidAudio fails to initialize**: requires macOS >= 14.0, `./build-swift.sh`
+  already run, and check the logs in the console.
+- **Slow first init**: the model is downloaded and cached; subsequent runs are faster.
+- **Engine fails**: the app still records audio (writes the WAV) but has no
+  transcript. Check mic/speaker permissions.
 
-## Test riêng FluidAudio
+## Testing FluidAudio in isolation
 
 ```bash
 cd model-test

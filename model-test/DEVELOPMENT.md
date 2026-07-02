@@ -1,4 +1,4 @@
-# Thêm thông tin và examples cho developers
+# Additional information and examples for developers
 
 ## 🧑‍💻 Development Guide
 

@@ -15,12 +15,13 @@ flowchart TB
       Main["MainContent<br/>Tabs: Transcript / Summary / Diarization"]
       Alert["AlertWindow<br/>(meeting-detected overlay)"]
     end
-    Store["Zustand store<br/>meetings / ui / teams slices"]
+    Store["Zustand store<br/>meetings / ui / teams / models / update slices"]
     subgraph Svc["Services (Tauri invoke wrappers)"]
       SvcT["transcription.ts"]
       SvcM["meetings.ts"]
       SvcD["diarization.ts"]
       SvcDet["meeting-detector.ts"]
+      SvcO["setup.ts · summary.ts · updater.ts"]
     end
     Pages --> UI
     Pages --> Store
@@ -37,11 +38,13 @@ flowchart TB
       CM["meetings"]
       CD["diarization"]
       CDet["detection"]
+      COther["setup · summary · mlx · settings"]
     end
     Session["session.rs<br/>RecorderState, event emit"]
     Recorder["recorder.rs<br/>AudioRecorder"]
     subgraph Audio["audio/"]
       Cap["capture: mic / speaker (CoreAudio)"]
+      Strm["streams: mic/speaker stream handlers"]
       Proc["processing: mixer + resampler"]
       Pipe["transcription: pipeline + segmenter"]
     end
@@ -51,7 +54,7 @@ flowchart TB
   end
 
   Native["FluidAudioBridge (Swift)<br/>ASR + VAD + Diarization models"]
-  FS[("Meeting dir on disk<br/>audio.wav / mic.wav / speaker.wav / meeting.json")]
+  FS[("Meeting dir on disk<br/>audio.wav / mic.wav / speaker.wav / data.json")]
 
   Svc <--> IPC
   IPC <--> Cmd
@@ -84,7 +87,7 @@ sequenceDiagram
   participant FA as FluidAudio (Swift FFI)
   participant Store as Zustand store
 
-  UI->>Cmd: invoke start_transcription(meetingId)
+  UI->>Cmd: invoke start_transcription(meetingId, language)
   Cmd->>Sess: session::start
   Sess->>Rec: recorder.start(events_tx, meetingId)
   Rec->>FA: initialize ASR + VAD (once)
@@ -128,3 +131,22 @@ Key properties:
   partials are dropped when newer audio is already queued.
 - Mixer writes three WAVs: `audio.wav` (mixed), `mic.wav`, `speaker.wav` — the
   per-source tracks feed offline diarization later.
+
+## 3. Other subsystems
+
+Beyond live capture, the app has several subsystems (not drawn above):
+
+- **Summarization** — `commands/summary.rs` + `src/services/summary.ts`. Two
+  providers: `claude` (Claude Code CLI, needs network) and `local` (on-device
+  MLX model via `commands/mlx.rs` + `src/mlx/`, fully offline). Also translates
+  summaries to Vietnamese (`translate_summary`). Local model emits `mlx://progress`.
+- **Model / language management & onboarding** — `commands/setup.rs` +
+  `src/services/setup.ts` + `src/features/models/` + `src/features/onboarding/`.
+  Downloads/installs/removes ASR language models. Emits `setup://progress`.
+- **Auto-updater** — `src/services/updater.ts` + `src/store/update.slice.ts` +
+  `src/features/update/`.
+- **Settings** — `commands/settings.rs` + `src/features/settings/`.
+- **System tray** — `src-tauri/src/tray.rs`; emits `tray://check-update`,
+  `tray://settings`, `tray://toggle-recording`.
+
+Other events not shown in the diagrams: `transcription://status`, `meeting-ended`.
