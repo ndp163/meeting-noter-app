@@ -40,11 +40,11 @@ export const HomePage = () => {
   const [isPreparingModel, setIsPreparingModel] = useState(false);
   const [audioPath, setAudioPath] = useState<string>();
   const [isAutoScroll, setIsAutoScroll] = useState(true);
-  const [isDiarizing, setIsDiarizing] = useState(false);
+  const [diarizingMeetingId, setDiarizingMeetingId] = useState<string | null>(null);
   const [diarizationError, setDiarizationError] = useState<string>();
-  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [summarizingMeetingId, setSummarizingMeetingId] = useState<string | null>(null);
   const [summaryError, setSummaryError] = useState<string>();
-  const [isTranslating, setIsTranslating] = useState(false);
+  const [translatingMeetingId, setTranslatingMeetingId] = useState<string | null>(null);
   const [translateError, setTranslateError] = useState<string>();
   const [claudeReady, setClaudeReady] = useState<boolean>();
   const [localReady, setLocalReady] = useState<boolean>();
@@ -74,6 +74,11 @@ export const HomePage = () => {
   const captureLanguage = useBoundStore.use.captureLanguage();
   const openSettings = useBoundStore.use.openSettings();
 
+  // Derived: only true when the CURRENT meeting is the one being processed.
+  const isDiarizing = diarizingMeetingId === currentMeetingId;
+  const isSummarizing = summarizingMeetingId === currentMeetingId;
+  const isTranslating = translatingMeetingId === currentMeetingId;
+
   const currentMeeting = getCurrentMeeting();
   const messages = currentMeeting?.transcript || [];
   const canDiarize =
@@ -85,8 +90,8 @@ export const HomePage = () => {
     currentMeeting.transcript.length > 0;
 
   const handleRunDiarization = async () => {
-    if (!currentMeetingId || isDiarizing) return;
-    setIsDiarizing(true);
+    if (!currentMeetingId || diarizingMeetingId !== null) return;
+    setDiarizingMeetingId(currentMeetingId);
     setDiarizationError(undefined);
     try {
       const segments = await diarizeMeeting(currentMeetingId);
@@ -99,13 +104,13 @@ export const HomePage = () => {
       console.error("Diarization failed", error);
       setDiarizationError(String(error));
     } finally {
-      setIsDiarizing(false);
+      setDiarizingMeetingId(null);
     }
   };
 
   const handleGenerateSummary = async () => {
-    if (!currentMeetingId || isSummarizing) return;
-    setIsSummarizing(true);
+    if (!currentMeetingId || summarizingMeetingId !== null) return;
+    setSummarizingMeetingId(currentMeetingId);
     setSummaryError(undefined);
     try {
       // The backend summarizes from data.json on disk, but the live transcript
@@ -125,13 +130,13 @@ export const HomePage = () => {
       console.error("Summary failed", error);
       setSummaryError(String(error));
     } finally {
-      setIsSummarizing(false);
+      setSummarizingMeetingId(null);
     }
   };
 
   const handleTranslateSummary = async () => {
-    if (!currentMeetingId || isTranslating) return;
-    setIsTranslating(true);
+    if (!currentMeetingId || translatingMeetingId !== null) return;
+    setTranslatingMeetingId(currentMeetingId);
     setTranslateError(undefined);
     try {
       const summaryVi = await translateSummary(currentMeetingId);
@@ -144,7 +149,7 @@ export const HomePage = () => {
       console.error("Translation failed", error);
       setTranslateError(String(error));
     } finally {
-      setIsTranslating(false);
+      setTranslatingMeetingId(null);
     }
   };
 
