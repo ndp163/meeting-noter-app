@@ -195,15 +195,18 @@ async fn run_inference(
 
 /// Generate with the on-device MLX model. The FFI call blocks, so it runs on a
 /// blocking thread.
+///
+/// Small local models don't reliably follow system-prompt-only instructions when
+/// the user turn is a long transcript. Embedding the instruction at the end of
+/// the user message gives the model a clear, near-context directive to follow.
 async fn run_local(instructions: &str, input: &str, max_tokens: i32) -> Result<String, String> {
     if !crate::mlx::installed() {
         return Err("The local model isn't installed yet. Download it in Settings → Models.".to_string());
     }
     let model_dir = crate::mlx::model_dir().to_string_lossy().into_owned();
-    let instructions = instructions.to_string();
-    let input = input.to_string();
+    let user_message = format!("{input}\n\n---\n{instructions}");
     tokio::task::spawn_blocking(move || {
-        crate::mlx::generate(&model_dir, &instructions, &input, max_tokens)
+        crate::mlx::generate(&model_dir, "", &user_message, max_tokens)
     })
     .await
     .map_err(|e| format!("local generation task failed: {e}"))?
