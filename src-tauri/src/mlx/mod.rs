@@ -6,7 +6,7 @@
 //!   - `libMlxBridge.dylib` — the mlx runtime + LLM stack (`dlopen`ed at runtime)
 //!   - `mlx.metallib` — the GPU kernels, kept next to the dylib so mlx's
 //!     colocated lookup (`dladdr` → dylib dir) finds them with no bundle plumbing
-//!   - the Qwen3-4B-Instruct-2507-4bit weights, under `model/`
+//!   - the model weights, under `model/`
 //!
 //! Downloads go through the same CloudFront CDN as the ASR models. We shell out
 //! to `curl`/`shasum` rather than linking an HTTP+TLS stack into this otherwise

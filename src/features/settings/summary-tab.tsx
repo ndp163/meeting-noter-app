@@ -65,7 +65,7 @@ export const SummaryTab = () => {
         selected={provider === "local"}
         onSelect={() => void setProvider("local")}
         title="On-device model"
-        subtitle="Fully offline · no network or login · Qwen3-4B (~2.3 GB)"
+        subtitle="Fully offline · no network or login · ~2.3 GB download"
       >
         <div className="flex items-center gap-2">
           {downloading ? (
