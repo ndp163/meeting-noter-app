@@ -1,14 +1,16 @@
 //! `dlopen` wrapper over the downloaded `libMlxBridge.dylib`.
 //!
-//! The library is loaded lazily on first use and kept alive for the process
-//! lifetime. The C entry point (`mlx_llm_generate`) blocks until generation
-//! finishes, so callers must invoke [`generate`] from a blocking thread
-//! (`spawn_blocking`). Calls are serialized — mlx runs one GPU inference at a
-//! time and the app only ever summarizes one meeting at once.
+//! The library is loaded fresh for each [`generate`] call and dropped
+//! immediately after — `dlclose()` frees the dylib, its Metal allocations, and
+//! the loaded model weights so memory returns to the system between uses. The
+//! C entry point (`mlx_llm_generate`) blocks until generation finishes, so
+//! callers must invoke [`generate`] from a blocking thread (`spawn_blocking`).
+//! Calls are serialized — mlx runs one GPU inference at a time and the app
+//! only ever summarizes one meeting at once.
 
 use libloading::{Library, Symbol};
 use std::ffi::{c_char, c_void, CStr, CString};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 
 type ProgressCb = extern "C" fn(f64, *mut c_void);
 type ResultCb = extern "C" fn(bool, *const c_char, *mut c_void);
@@ -42,24 +44,15 @@ extern "C" fn on_result(ok: bool, text: *const c_char, ctx: *mut c_void) {
 
 static GEN_LOCK: Mutex<()> = Mutex::new(());
 
-fn library() -> Result<&'static Library, String> {
-    static LIB: OnceLock<Library> = OnceLock::new();
-    if LIB.get().is_none() {
-        let path = super::dylib_path();
-        // SAFETY: loading our own signed, downloaded dylib. The colocated
-        // `mlx.metallib` is found via the library's own directory at init.
-        let loaded = unsafe { Library::new(&path) }
-            .map_err(|e| format!("Failed to load the local model runtime: {e}"))?;
-        let _ = LIB.set(loaded); // a racing thread may have set it first
-    }
-    LIB.get()
-        .ok_or_else(|| "Local model runtime not loaded".to_string())
-}
-
 /// Run one summarization-style generation. Blocks until complete.
+/// The dylib is loaded for this call only and dropped on return, freeing
+/// model weights and Metal allocations immediately after use.
 pub fn generate(model_dir: &str, system: &str, user: &str, max_tokens: i32) -> Result<String, String> {
     let _guard = GEN_LOCK.lock().map_err(|_| "mlx lock poisoned".to_string())?;
-    let lib = library()?;
+    // SAFETY: loading our own signed, downloaded dylib. The colocated
+    // `mlx.metallib` is found via the library's own directory at init.
+    let lib = unsafe { Library::new(super::dylib_path()) }
+        .map_err(|e| format!("Failed to load the local model runtime: {e}"))?;
     let func: Symbol<GenerateFn> = unsafe { lib.get(b"mlx_llm_generate\0") }
         .map_err(|e| format!("missing mlx_llm_generate symbol: {e}"))?;
 
