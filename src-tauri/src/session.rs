@@ -4,16 +4,18 @@
 //! forwards transcription events to the frontend.
 
 use crate::recorder::{AudioRecorder, TranscriptionEvent};
+use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::sync::{Mutex, Notify};
+use tokio::sync::{mpsc, Mutex, Notify};
 use tokio_util::sync::CancellationToken;
 
 const TRANSCRIPTION_EVENT: &str = "transcription://chunk";
+const TRANSLATION_EVENT: &str = "translation://chunk";
 
 pub struct RecorderSession {
     id: u64,
@@ -103,6 +105,33 @@ impl From<&TranscriptionEvent> for TranscriptionEventPayload {
     }
 }
 
+/// A translated segment, matched to its transcript chunk on the frontend by
+/// `(source, start_sec)`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TranslationEventPayload {
+    source: String,
+    text: String,
+    start_sec: f32,
+    is_result_final: bool,
+    is_sentence_final: bool,
+}
+
+/// One unit of work for the translate worker.
+struct TranslateJob {
+    source: String,
+    text: String,
+    start_sec: f32,
+    is_result_final: bool,
+    is_sentence_final: bool,
+}
+
+impl TranslateJob {
+    /// Dedup key: same transcript segment (per source stream + start offset).
+    fn key(&self) -> (String, u32) {
+        (self.source.clone(), self.start_sec.to_bits())
+    }
+}
+
 /// Start a new recording session. Fails if one is already running.
 pub async fn start(
     app_handle: AppHandle,
@@ -125,6 +154,10 @@ pub async fn start(
         recorder_guard.cancel_token()
     };
 
+    // Realtime translation (optional): source = the meeting's ASR language.
+    let source_lang = language.clone().unwrap_or_else(|| "en".to_string());
+    let translate_tx = maybe_spawn_translate(app_handle.clone(), source_lang);
+
     let recorder_handle = spawn_recorder_task(
         state.recorder.clone(),
         notify.clone(),
@@ -135,7 +168,7 @@ pub async fn start(
         app_handle.clone(),
     );
 
-    let events_handle = spawn_events_handler(app_handle.clone(), event_rx);
+    let events_handle = spawn_events_handler(app_handle.clone(), event_rx, translate_tx);
 
     let session_id = state.allocate_id();
     let session = RecorderSession {
@@ -212,14 +245,141 @@ fn spawn_recorder_task(
 fn spawn_events_handler(
     app_handle: AppHandle,
     event_rx: crossbeam_channel::Receiver<TranscriptionEvent>,
+    translate_tx: Option<mpsc::UnboundedSender<TranslateJob>>,
 ) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn_blocking(move || {
         while let Ok(event) = event_rx.recv() {
             if let Err(err) = emit_transcription_event(&app_handle, &event) {
                 tracing::debug!("Failed to emit transcription event: {err}");
             }
+            // Hand the committed/partial text to the translate worker, which
+            // drops superseded partials and emits `translation://chunk`.
+            if let Some(tx) = &translate_tx {
+                let text = event.result.text.trim();
+                if !text.is_empty() {
+                    let (is_result_final, is_sentence_final) = event.result.finality.as_flags();
+                    let _ = tx.send(TranslateJob {
+                        source: event.source.as_str().to_string(),
+                        text: text.to_string(),
+                        start_sec: event.result.start_sec,
+                        is_result_final,
+                        is_sentence_final,
+                    });
+                }
+            }
         }
     })
+}
+
+/// Spawn the translation worker if translation is enabled and the target
+/// differs from the source. Returns the job sender, or `None` when translation
+/// is off (so the events handler skips it entirely).
+fn maybe_spawn_translate(
+    app_handle: AppHandle,
+    source: String,
+) -> Option<mpsc::UnboundedSender<TranslateJob>> {
+    let (enabled, target) = crate::commands::settings::translate_config();
+    if !enabled || target.is_empty() || target == source {
+        return None;
+    }
+
+    let (tx, rx) = mpsc::unbounded_channel::<TranslateJob>();
+    tauri::async_runtime::spawn(translate_worker(app_handle, source, target, rx));
+    Some(tx)
+}
+
+/// Accumulated state of the message currently being built for one source
+/// stream, mirroring the frontend's transcript-merge so the translated text
+/// matches what's displayed.
+#[derive(Default)]
+struct MsgState {
+    start_sec: f32,
+    committed: String,
+    done: bool,
+}
+
+/// Translate jobs in order, collapsing superseded partials, and translate the
+/// **full accumulated message** (not each chunk) so the result matches the
+/// merged transcript line the frontend shows. Emits `translation://chunk` keyed
+/// by the message's `start_sec` for the frontend to match.
+///
+/// Superseded partials are dropped when jobs pile up (partials arriving faster
+/// than translation); committed/sentence-final results have distinct
+/// `start_sec` so they're never dropped, keeping accumulation correct.
+async fn translate_worker(
+    app_handle: AppHandle,
+    source_lang: String,
+    target: String,
+    mut rx: mpsc::UnboundedReceiver<TranslateJob>,
+) {
+    let mut states: HashMap<String, MsgState> = HashMap::new();
+
+    while let Some(first) = rx.recv().await {
+        // Collapse everything currently queued, keeping the latest per segment
+        // while preserving arrival order (accumulation depends on order).
+        let mut order: Vec<(String, u32)> = Vec::new();
+        let mut latest: HashMap<(String, u32), TranslateJob> = HashMap::new();
+        let k0 = first.key();
+        order.push(k0.clone());
+        latest.insert(k0, first);
+        while let Ok(job) = rx.try_recv() {
+            let k = job.key();
+            if !latest.contains_key(&k) {
+                order.push(k.clone());
+            }
+            latest.insert(k, job);
+        }
+
+        for k in order {
+            let Some(job) = latest.remove(&k) else { continue };
+
+            let st = states.entry(job.source.clone()).or_insert_with(|| MsgState {
+                done: true,
+                ..Default::default()
+            });
+            // Sentence boundary → the next result starts a fresh message.
+            if st.done {
+                st.start_sec = job.start_sec;
+                st.committed = String::new();
+                st.done = false;
+            }
+
+            // Reproduce the frontend content merge.
+            let content = if job.is_result_final && !job.is_sentence_final {
+                st.committed = if st.committed.is_empty() {
+                    job.text.clone()
+                } else {
+                    format!("{} {}", st.committed, job.text)
+                };
+                st.committed.clone()
+            } else if !st.committed.is_empty() {
+                format!("{} {}", st.committed, job.text)
+            } else {
+                job.text.clone()
+            };
+
+            let msg_start = st.start_sec;
+            if job.is_sentence_final {
+                st.done = true;
+            }
+
+            match crate::bridges::translate::translate(&source_lang, &target, &content).await {
+                Ok(translated) => {
+                    let payload = TranslationEventPayload {
+                        source: job.source,
+                        text: translated,
+                        start_sec: msg_start,
+                        is_result_final: job.is_result_final,
+                        is_sentence_final: job.is_sentence_final,
+                    };
+                    if let Err(err) = app_handle.emit(TRANSLATION_EVENT, payload) {
+                        tracing::debug!("Failed to emit translation event: {err}");
+                    }
+                }
+                Err(err) => tracing::debug!("Translation failed: {err}"),
+            }
+        }
+    }
 }
 
 fn spawn_cleanup_watcher(app_handle: AppHandle, session_id: u64, notify: Arc<Notify>) {

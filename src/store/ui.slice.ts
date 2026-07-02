@@ -2,7 +2,10 @@ import { StateCreator } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { MeetingLanguage } from "@/types/meeting";
 
-export type SettingsTab = "models" | "summary" | "updates";
+export type SettingsTab = "models" | "summary" | "translate" | "updates";
+
+/** How translated transcript lines are shown. Set in Settings › Translation. */
+export type TranscriptView = "translated" | "both";
 
 export interface UISlice {
   isSidebarCollapsed: boolean;
@@ -11,6 +14,8 @@ export interface UISlice {
   /** Settings modal visibility + active tab. */
   settingsOpen: boolean;
   settingsTab: SettingsTab;
+  /** Translation display mode (mirrors the persisted setting). */
+  transcriptView: TranscriptView;
 
   // Actions
   toggleSidebar: () => void;
@@ -19,6 +24,7 @@ export interface UISlice {
   openSettings: (tab?: SettingsTab) => void;
   closeSettings: () => void;
   setSettingsTab: (tab: SettingsTab) => void;
+  setTranscriptView: (view: TranscriptView) => void;
 }
 
 export const createUISlice: StateCreator<UISlice, [], [], UISlice> = immer(
@@ -27,6 +33,7 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = immer(
     captureLanguage: "en",
     settingsOpen: false,
     settingsTab: "models",
+    transcriptView: "both",
 
     toggleSidebar: () =>
       set((state) => {
@@ -57,6 +64,11 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = immer(
     setSettingsTab: (tab) =>
       set((state) => {
         state.settingsTab = tab;
+      }),
+
+    setTranscriptView: (view) =>
+      set((state) => {
+        state.transcriptView = view;
       }),
   }),
 ) as StateCreator<UISlice, [], [], UISlice>;

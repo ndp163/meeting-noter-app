@@ -1,6 +1,7 @@
 import { Ref, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Tabs, StatusDot } from "@/design-system";
+import { useBoundStore } from "@/store";
 import { Message } from "@/features/home/message";
 import { AudioPlayer, type AudioPlayerHandle } from "@/features/home/audio-player";
 import { DiarizationView } from "@/features/home/diarization-view";
@@ -69,6 +70,7 @@ export const MainContent = ({
 }: MainContentProps) => {
   const playerRef = useRef<AudioPlayerHandle>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const transcriptView = useBoundStore.use.transcriptView();
 
   // Map playback position → the last message that has started by then.
   const handleTimeUpdate = (seconds: number) => {
@@ -123,22 +125,35 @@ export const MainContent = ({
           {activeTab === "transcript" ? (
             messages.length > 0 ? (
               <div className="flex flex-col gap-2">
-                {messages.map((message) => (
-                  <div key={message.id} data-msg-id={message.id}>
-                    <Message
-                      label={message.label}
-                      timestamp={message.timestamp}
-                      content={message.content}
-                      isUser={message.source === "mic"}
-                      active={message.id === activeId}
-                      onSeek={
-                        audioPath && message.audioOffset !== undefined
-                          ? () => playerRef.current?.seek(message.audioOffset!)
-                          : undefined
-                      }
-                    />
-                  </div>
-                ))}
+                {messages.map((message) => {
+                  // "translated" shows only the translation (falls back to the
+                  // original until it arrives); "both" stacks them; "original"
+                  // hides translation.
+                  const showTranslated =
+                    transcriptView === "translated" && message.translation;
+                  const content = showTranslated
+                    ? message.translation!
+                    : message.content;
+                  const translation =
+                    transcriptView === "both" ? message.translation : undefined;
+                  return (
+                    <div key={message.id} data-msg-id={message.id}>
+                      <Message
+                        label={message.label}
+                        timestamp={message.timestamp}
+                        content={content}
+                        translation={translation}
+                        isUser={message.source === "mic"}
+                        active={message.id === activeId}
+                        onSeek={
+                          audioPath && message.audioOffset !== undefined
+                            ? () => playerRef.current?.seek(message.audioOffset!)
+                            : undefined
+                        }
+                      />
+                    </div>
+                  );
+                })}
                 {/* Invisible element to scroll to */}
                 <div ref={messagesEndRef} />
               </div>

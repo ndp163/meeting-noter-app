@@ -19,6 +19,7 @@ import {
   createNewMeeting,
 } from "@/services/meetings";
 import { diarizeMeeting } from "@/services/diarization";
+import { listenToTranslation, getTranslateConfig } from "@/services/translation";
 import { detectMeetingPlatform } from "@/services/meeting-detector";
 import {
   summarizeMeeting,
@@ -65,6 +66,9 @@ export const HomePage = () => {
   const addTranscriptToMeeting = useBoundStore.use.addTranscriptToMeeting();
   const updateTranscriptInMeeting =
     useBoundStore.use.updateTranscriptInMeeting();
+  const setTranslationForSegment =
+    useBoundStore.use.setTranslationForSegment();
+  const setTranscriptView = useBoundStore.use.setTranscriptView();
   const setDiarization = useBoundStore.use.setDiarization();
   const setSummary = useBoundStore.use.setSummary();
   const setSummaryTranslation = useBoundStore.use.setSummaryTranslation();
@@ -223,6 +227,9 @@ export const HomePage = () => {
     let mounted = true;
     void getSummaryProvider()
       .then((p) => mounted && setSummaryProvider(p))
+      .catch(() => {});
+    void getTranslateConfig()
+      .then((c) => mounted && setTranscriptView(c.view))
       .catch(() => {});
     isClaudeAvailable()
       .then((ready) => mounted && setClaudeReady(ready))
@@ -393,6 +400,30 @@ export const HomePage = () => {
     addTranscriptToMeeting,
     updateTranscriptInMeeting,
   ]);
+
+  // Realtime translation: attach translated text to its transcript line.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    listenToTranslation((payload) => {
+      const meeting = getCapturingMeeting();
+      if (!meeting) return;
+      setTranslationForSegment(
+        meeting.id,
+        payload.source,
+        payload.start_sec,
+        payload.text,
+      );
+    })
+      .then((release) => {
+        unlisten = release;
+      })
+      .catch((error) => {
+        console.error("Failed to subscribe to translation events", error);
+      });
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [getCapturingMeeting, setTranslationForSegment]);
 
   // Disable auto-scroll only when the user scrolls up away from the bottom.
   // (Don't use marker visibility — appending a line pushes the marker out of

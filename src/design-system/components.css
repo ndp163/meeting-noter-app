@@ -130,6 +130,7 @@
 .ds-msg__ts { font-size: 12.5px; color: var(--ds-text-3); font-variant-numeric: tabular-nums; background: none; border: none; padding: 0; cursor: pointer; font-family: var(--ds-font); }
 .ds-msg__ts:hover { color: var(--ds-accent); }
 .ds-msg__body { font-size: var(--ds-text-md); color: var(--ds-text); line-height: 1.62; white-space: pre-wrap; }
+.ds-msg__translation { font-size: var(--ds-text-md); color: var(--ds-text-2); line-height: 1.62; white-space: pre-wrap; margin-top: 5px; padding-left: 9px; border-left: 2px solid var(--ds-accent-soft, var(--ds-border-2)); font-style: italic; }
 
 /* ---------- PillToggle ---------- */
 .ds-pillgroup { display: inline-flex; gap: var(--ds-space-2); }

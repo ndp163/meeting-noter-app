@@ -21,6 +21,7 @@ use commands::{
     claude_available, generate_title, summarize_meeting, translate_summary,
     local_model_available, download_local_model, delete_local_model,
     get_summary_provider, set_summary_provider,
+    get_translate_config, set_translate_config, translate_status, translate_download,
 };
 use session::RecorderState;
 
@@ -75,6 +76,10 @@ pub async fn run() -> Result<()> {
             delete_local_model,
             get_summary_provider,
             set_summary_provider,
+            get_translate_config,
+            set_translate_config,
+            translate_status,
+            translate_download,
         ])
         .run(tauri::generate_context!())
         .map_err(|e| anyhow::anyhow!(e))

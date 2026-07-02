@@ -5,6 +5,7 @@ pub mod settings;
 mod setup;
 mod summary;
 mod transcription;
+mod translate;
 mod meetings;
 
 pub use detection::{meeting_detection_status, start_recording_from_alert, dismiss_alert};
@@ -13,7 +14,11 @@ pub use diarization::diarize_meeting;
 
 pub use mlx::{delete_local_model, download_local_model, local_model_available};
 
-pub use settings::{get_summary_provider, set_summary_provider};
+pub use settings::{
+    get_summary_provider, set_summary_provider, get_translate_config, set_translate_config,
+};
+
+pub use translate::{translate_status, translate_download};
 
 pub use setup::{
     delete_language, download_language, installed_languages, models_manifest_url, models_ready,

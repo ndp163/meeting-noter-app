@@ -8,6 +8,7 @@
 //! [`crate::config::EngineType`] + [`create_transcriber`].
 
 pub mod fluidaudio;
+pub mod translate;
 
 pub use fluidaudio::FluidAudio;
 

@@ -1,6 +1,7 @@
 import { Modal, Tabs } from "@/design-system";
 import { ModelManager } from "@/features/models/model-manager";
 import { SummaryTab } from "./summary-tab";
+import { TranslateTab } from "./translate-tab";
 import { UpdatesTab } from "./updates-tab";
 import { useBoundStore } from "@/store";
 import type { SettingsTab } from "@/store/ui.slice";
@@ -13,6 +14,7 @@ interface SettingsModalProps {
 const TABS = [
   { id: "models", label: "Languages" },
   { id: "summary", label: "AI summary" },
+  { id: "translate", label: "Translation" },
   { id: "updates", label: "Updates" },
 ];
 
@@ -34,6 +36,8 @@ export const SettingsModal = ({ open, onClose }: SettingsModalProps) => {
           <ModelManager />
         ) : tab === "summary" ? (
           <SummaryTab />
+        ) : tab === "translate" ? (
+          <TranslateTab />
         ) : (
           <UpdatesTab />
         )}
