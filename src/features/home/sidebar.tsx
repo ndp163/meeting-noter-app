@@ -107,7 +107,7 @@ export const Sidebar = ({
           onClick={handleToggleCapture}
           disabled={isCaptureBusy}
           title={isCapturing ? "Stop Capture" : "Start Capture"}
-          className={cn("ds-capture", isCapturing && "ds-capture--active")}
+          className={cn("ds-capture shrink-0", isCapturing && "ds-capture--active")}
           style={{ height: 52 }}
         >
           {isCapturing ? <Square className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
@@ -117,6 +117,7 @@ export const Sidebar = ({
           capturing={isCapturing}
           disabled={isCaptureBusy}
           onClick={handleToggleCapture}
+          className="shrink-0"
         />
       )}
 
