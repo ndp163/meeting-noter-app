@@ -1,6 +1,7 @@
 # Design System — rules
 
-Modern-minimal, token-based component set. Full usage spec:
+Token-based component set. Default theme Vintage (Sepia / Paper); modern-minimal
+is opt-in via the `ds-theme-modern` class. Full usage spec:
 [.design-sync/conventions.md](../../.design-sync/conventions.md). Sync gotchas:
 [.design-sync/NOTES.md](../../.design-sync/NOTES.md).
 
