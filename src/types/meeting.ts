@@ -8,6 +8,8 @@ export interface TranscriptMessage {
   sentenceFinal?: boolean;
   committedContent?: string;
   audioOffset?: number;
+  /** Realtime translation of `content` (Apple Translation, on-device). */
+  translation?: string;
 }
 
 export interface DiarizedSegment {

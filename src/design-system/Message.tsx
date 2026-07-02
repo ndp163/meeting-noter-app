@@ -7,6 +7,8 @@ export interface MessageProps {
   timestamp: string;
   /** Transcript text. Preserves line breaks. */
   content: string;
+  /** Optional translated text, shown muted beneath the body. */
+  translation?: string;
   /** Render the speaker in the accent colour (the local user). */
   isUser?: boolean;
   /** Add a divider beneath the message (between consecutive messages). */
@@ -22,6 +24,7 @@ export const Message = ({
   speaker,
   timestamp,
   content,
+  translation,
   isUser,
   divided,
   onSeek,
@@ -55,6 +58,7 @@ export const Message = ({
       >
         {content}
       </p>
+      {translation && <p className="ds-msg__translation">{translation}</p>}
     </div>
   );
 };

@@ -26,6 +26,12 @@ export interface MeetingsSlice {
     messageId: string,
     updates: Partial<TranscriptMessage>
   ) => void;
+  setTranslationForSegment: (
+    meetingId: string,
+    source: "mic" | "speaker",
+    startSec: number,
+    translation: string
+  ) => void;
   setIsLoadingMeetings: (isLoading: boolean) => void;
   setSummary: (meetingId: string, summary: string) => void;
   setSummaryTranslation: (meetingId: string, summaryVi: string) => void;
@@ -105,6 +111,26 @@ export const createMeetingsSlice: StateCreator<
         ...state.meetings[meetingIdx].transcript[transcriptIdx],
         ...updates,
       };
+    }),
+
+  // Match a translation to its transcript line by source + start offset (the
+  // backend keys `translation://chunk` on the message's start_sec / audioOffset).
+  setTranslationForSegment: (meetingId, source, startSec, translation) =>
+    set((state) => {
+      const meeting = state.meetings.find((m) => m.id === meetingId);
+      if (!meeting) return;
+      // Latest matching message wins (start offsets are unique per message).
+      for (let i = meeting.transcript.length - 1; i >= 0; i--) {
+        const msg = meeting.transcript[i];
+        if (
+          msg.source === source &&
+          msg.audioOffset !== undefined &&
+          Math.abs(msg.audioOffset - startSec) < 0.001
+        ) {
+          msg.translation = translation;
+          return;
+        }
+      }
     }),
 
   setIsLoadingMeetings: (isLoading) =>
