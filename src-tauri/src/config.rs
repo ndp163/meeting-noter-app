@@ -21,9 +21,9 @@ pub const MODELS_MANIFEST_URL: &str =
     "https://d17sbkyjhl5fws.cloudfront.net/asr/v1/manifest.json";
 
 /// Base URL for the on-device LLM assets (runtime dylib + metallib + weights).
-/// Manifest `url`s are `<version>/...` (e.g. `v1/model/…`); the `llm/` domain
-/// prefix lives here in the base, mirroring [`MODELS_BASE_URL`] for ASR.
-pub const LLM_BASE_URL: &str = "https://d17sbkyjhl5fws.cloudfront.net/llm";
+/// Manifest `url`s already carry the `llm/` prefix (e.g. `llm/v1/model/…`),
+/// so this is the CDN root — no trailing path component.
+pub const LLM_BASE_URL: &str = "https://d17sbkyjhl5fws.cloudfront.net";
 
 /// Which transcription engine to use.
 ///
