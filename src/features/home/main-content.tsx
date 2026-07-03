@@ -1,6 +1,6 @@
 import { Ref, useEffect, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
-import { Tabs, StatusDot, CaptureButton } from "@/design-system";
+import { Loader2, Mic, MessageSquareText } from "lucide-react";
+import { Tabs, StatusDot } from "@/design-system";
 import { useBoundStore } from "@/store";
 import { Message } from "@/features/home/message";
 import { AudioPlayer, type AudioPlayerHandle } from "@/features/home/audio-player";
@@ -16,8 +16,6 @@ interface MainContentProps {
   setActiveTab: (tab: MainTab) => void;
   isCapturing: boolean;
   isPreparingModel: boolean;
-  isCaptureBusy?: boolean;
-  onToggleCapture: () => void;
   messages: TranscriptMessage[];
   currentMeetingId: string | null;
   audioPath?: string;
@@ -48,8 +46,6 @@ export const MainContent = ({
   setActiveTab,
   isCapturing,
   isPreparingModel,
-  isCaptureBusy,
-  onToggleCapture,
   messages,
   currentMeetingId,
   audioPath,
@@ -196,17 +192,29 @@ export const MainContent = ({
                 Listening for speech...
               </div>
             ) : (
-              <div className="flex flex-col items-start gap-4 py-6">
-                <p className="text-[var(--ds-text-2)] text-sm">
-                  {currentMeetingId
-                    ? "No transcript yet. Start capturing to begin recording."
-                    : "Create a new meeting or select an existing one to get started."}
-                </p>
-                <CaptureButton
-                  capturing={false}
-                  disabled={isCaptureBusy}
-                  onClick={onToggleCapture}
-                />
+              <div className="flex flex-col items-center justify-center gap-4 py-16 text-center">
+                <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-[var(--ds-surface-2)]">
+                  {currentMeetingId ? (
+                    <Mic className="h-7 w-7 text-[var(--ds-text-2)]" strokeWidth={2} />
+                  ) : (
+                    <MessageSquareText
+                      className="h-7 w-7 text-[var(--ds-text-2)]"
+                      strokeWidth={2}
+                    />
+                  )}
+                </span>
+                <div className="flex flex-col gap-1">
+                  <p className="text-base font-medium text-[var(--ds-text)]">
+                    {currentMeetingId
+                      ? "No transcript yet"
+                      : "No meeting selected"}
+                  </p>
+                  <p className="text-sm text-[var(--ds-text-2)]">
+                    {currentMeetingId
+                      ? "Press Start Capture in the sidebar to begin recording."
+                      : "Create a new meeting or pick one from the sidebar to get started."}
+                  </p>
+                </div>
               </div>
             )
           ) : activeTab === "diarization" ? (
