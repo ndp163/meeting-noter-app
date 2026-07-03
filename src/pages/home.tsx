@@ -652,8 +652,6 @@ export const HomePage = () => {
         setActiveTab={setActiveTab}
         isCapturing={isCapturing}
         isPreparingModel={isPreparingModel}
-        isCaptureBusy={isCaptureBusy}
-        onToggleCapture={handleCaptureToggle}
         messages={messages}
         currentMeetingId={currentMeetingId}
         audioPath={audioPath}
