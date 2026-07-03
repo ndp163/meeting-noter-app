@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { friendlyError } from "@/lib/utils";
 import {
   deleteLocalModel,
   downloadLocalModel,
@@ -47,7 +48,8 @@ export const useLocalModel = () => {
       setInstalled(true);
       return true;
     } catch (e) {
-      setError(String(e));
+      console.error("Local model download failed", e);
+      setError(friendlyError(e, "Download failed — please try again."));
       return false;
     } finally {
       setDownloading(false);

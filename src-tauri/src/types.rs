@@ -84,7 +84,16 @@ pub struct Meeting {
     pub diarization: Option<Vec<DiarizedSegment>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    /// On-demand translation of the summary + the target language it was made
+    /// for. Replaces the old Vietnamese-only `summaryVi`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub summary_vi: Option<String>,
+    pub summary_translation: Option<SummaryTranslation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SummaryTranslation {
+    pub lang: String,
+    pub text: String,
 }
 

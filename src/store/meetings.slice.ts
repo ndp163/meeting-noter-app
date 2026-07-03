@@ -34,7 +34,11 @@ export interface MeetingsSlice {
   ) => void;
   setIsLoadingMeetings: (isLoading: boolean) => void;
   setSummary: (meetingId: string, summary: string) => void;
-  setSummaryTranslation: (meetingId: string, summaryVi: string) => void;
+  setSummaryTranslation: (
+    meetingId: string,
+    lang: string,
+    text: string,
+  ) => void;
   setDiarization: (meetingId: string, segments: DiarizedSegment[]) => void;
   renameSpeaker: (
     meetingId: string,
@@ -144,15 +148,15 @@ export const createMeetingsSlice: StateCreator<
       if (!meeting) return;
       meeting.summary = summary;
       // A new summary invalidates any prior translation.
-      meeting.summaryVi = undefined;
+      meeting.summaryTranslation = undefined;
       meeting.updatedAt = Date.now();
     }),
 
-  setSummaryTranslation: (meetingId, summaryVi) =>
+  setSummaryTranslation: (meetingId, lang, text) =>
     set((state) => {
       const meeting = state.meetings.find((m) => m.id === meetingId);
       if (!meeting) return;
-      meeting.summaryVi = summaryVi;
+      meeting.summaryTranslation = { lang, text };
       meeting.updatedAt = Date.now();
     }),
 

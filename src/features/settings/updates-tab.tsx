@@ -5,7 +5,8 @@ import {
   AlertCircle,
   Loader2,
 } from "lucide-react";
-import { Button, Prose, ProgressBar } from "@/design-system";
+import { useState } from "react";
+import { Button, ConfirmDialog, Prose, ProgressBar } from "@/design-system";
 import { useBoundStore } from "@/store";
 
 // The updater date arrives as RFC3339-ish; show a readable date, fall back to
@@ -29,12 +30,14 @@ export const UpdatesTab = () => {
   const current = useBoundStore.use.currentVersion();
   const checkUpdate = useBoundStore.use.checkUpdate();
   const runInstall = useBoundStore.use.runInstall();
+  const isRecording = useBoundStore.use.isRecording();
+  const [confirmInstall, setConfirmInstall] = useState(false);
 
   const checking = phase === "checking";
   const installing = phase === "installing";
 
   return (
-    <div className="flex flex-col gap-4 min-w-[420px]">
+    <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-4">
         <div className="flex flex-col">
           <span className="text-xs text-[var(--ds-text-2)]">
@@ -107,15 +110,33 @@ export const UpdatesTab = () => {
             </div>
           ) : (
             <Button
-              variant="accent"
+              variant="primary"
               icon={<Download className="w-4 h-4" />}
-              onClick={() => void runInstall()}
+              onClick={() => setConfirmInstall(true)}
             >
               Install &amp; restart
             </Button>
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmInstall}
+        title="Install update & restart?"
+        message={
+          isRecording
+            ? "A recording is in progress. Stop it before installing — restarting now would lose the in-progress recording."
+            : "The app will download the update and restart. Any unsaved work will be interrupted."
+        }
+        confirmLabel="Install & restart"
+        confirmDisabled={isRecording}
+        confirmIcon={<Download className="w-4 h-4" />}
+        onConfirm={() => {
+          setConfirmInstall(false);
+          void runInstall();
+        }}
+        onCancel={() => setConfirmInstall(false)}
+      />
     </div>
   );
 };

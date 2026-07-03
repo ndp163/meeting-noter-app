@@ -1,6 +1,6 @@
 import { Ref, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { Tabs, StatusDot } from "@/design-system";
+import { Tabs, StatusDot, CaptureButton } from "@/design-system";
 import { useBoundStore } from "@/store";
 import { Message } from "@/features/home/message";
 import { AudioPlayer, type AudioPlayerHandle } from "@/features/home/audio-player";
@@ -16,6 +16,8 @@ interface MainContentProps {
   setActiveTab: (tab: MainTab) => void;
   isCapturing: boolean;
   isPreparingModel: boolean;
+  isCaptureBusy?: boolean;
+  onToggleCapture: () => void;
   messages: TranscriptMessage[];
   currentMeetingId: string | null;
   audioPath?: string;
@@ -28,7 +30,8 @@ interface MainContentProps {
   onRunDiarization: () => void;
   onRenameSpeaker: (speakerId: string, label: string) => void;
   summary: string | undefined;
-  summaryVi: string | undefined;
+  summaryTranslation: { lang: string; text: string } | undefined;
+  translateTarget: string;
   isSummarizing: boolean;
   isTranslating: boolean;
   summaryError?: string;
@@ -45,6 +48,8 @@ export const MainContent = ({
   setActiveTab,
   isCapturing,
   isPreparingModel,
+  isCaptureBusy,
+  onToggleCapture,
   messages,
   currentMeetingId,
   audioPath,
@@ -57,7 +62,8 @@ export const MainContent = ({
   onRunDiarization,
   onRenameSpeaker,
   summary,
-  summaryVi,
+  summaryTranslation,
+  translateTarget,
   isSummarizing,
   isTranslating,
   summaryError,
@@ -124,7 +130,13 @@ export const MainContent = ({
         <div className="flex flex-col gap-5">
           {activeTab === "transcript" ? (
             messages.length > 0 ? (
-              <div className="flex flex-col gap-2">
+              <div
+                className="flex flex-col gap-2"
+                role="log"
+                aria-live="polite"
+                aria-relevant="additions"
+                aria-label="Live transcript"
+              >
                 {messages.map((message) => {
                   // "translated" shows only the translation (falls back to the
                   // original until it arrives); "both" stacks them; "original"
@@ -145,6 +157,7 @@ export const MainContent = ({
                         translation={translation}
                         isUser={message.source === "mic"}
                         active={message.id === activeId}
+                        pending={isCapturing && message.sentenceFinal === false}
                         onSeek={
                           audioPath && message.audioOffset !== undefined
                             ? () => playerRef.current?.seek(message.audioOffset!)
@@ -178,13 +191,22 @@ export const MainContent = ({
                   </p>
                 </div>
               </div>
-            ) : (
+            ) : isCapturing ? (
               <div className="text-[var(--ds-text-2)] text-sm">
-                {isCapturing
-                  ? "Listening for speech..."
-                  : currentMeetingId
-                    ? "No transcript yet. Press Start Capture to begin recording."
+                Listening for speech...
+              </div>
+            ) : (
+              <div className="flex flex-col items-start gap-4 py-6">
+                <p className="text-[var(--ds-text-2)] text-sm">
+                  {currentMeetingId
+                    ? "No transcript yet. Start capturing to begin recording."
                     : "Create a new meeting or select an existing one to get started."}
+                </p>
+                <CaptureButton
+                  capturing={false}
+                  disabled={isCaptureBusy}
+                  onClick={onToggleCapture}
+                />
               </div>
             )
           ) : activeTab === "diarization" ? (
@@ -200,7 +222,8 @@ export const MainContent = ({
           ) : (
             <SummaryView
               summary={summary}
-              summaryVi={summaryVi}
+              summaryTranslation={summaryTranslation}
+              translateTarget={translateTarget}
               isLoading={isSummarizing}
               isTranslating={isTranslating}
               error={summaryError}

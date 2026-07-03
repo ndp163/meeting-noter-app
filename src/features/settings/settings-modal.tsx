@@ -25,7 +25,8 @@ export const SettingsModal = ({ open, onClose }: SettingsModalProps) => {
 
   return (
     <Modal open={open} title="Settings" onClose={onClose}>
-      <div className="flex flex-col gap-4">
+      {/* One width for every tab so switching tabs doesn't resize the modal. */}
+      <div className="flex flex-col gap-4 min-w-[460px]">
         <Tabs
           className="self-start"
           items={TABS}

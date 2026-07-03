@@ -99,6 +99,7 @@ export const DiarizationView = ({
                 {editing === index ? (
                   <input
                     autoFocus
+                    aria-label="Speaker name"
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
                     onBlur={() => commitEdit(segment.speakerId)}
@@ -113,16 +114,18 @@ export const DiarizationView = ({
                   <>
                     {segment.label}
                     <span className="ds-seg__time">{formatTime(segment.start)}</span>
-                    <span
+                    <button
+                      type="button"
                       className="ds-seg__edit"
                       title="Rename speaker"
+                      aria-label={`Rename ${segment.label}`}
                       onClick={() => {
                         setEditing(index);
                         setDraft(segment.label);
                       }}
                     >
                       <Pencil size={13} />
-                    </span>
+                    </button>
                     <button
                       onClick={() => onSeek(segment.start)}
                       title="Jump to this moment"

@@ -22,6 +22,22 @@ export interface TranslateConfig {
   view: TranscriptView;
 }
 
+/** Target languages surfaced for translation (transcript + summary). Source of
+ *  a translation is always the meeting's ASR language (en / ja). */
+export const TRANSLATE_TARGETS: { id: string; label: string }[] = [
+  { id: "vi", label: "Vietnamese" },
+  { id: "en", label: "English" },
+  { id: "ja", label: "Japanese" },
+  { id: "zh", label: "Chinese" },
+  { id: "ko", label: "Korean" },
+  { id: "es", label: "Spanish" },
+  { id: "fr", label: "French" },
+];
+
+/** Human label for a target code, or the code itself if unknown. */
+export const targetLabel = (code: string): string =>
+  TRANSLATE_TARGETS.find((t) => t.id === code)?.label ?? code;
+
 export const getTranslateConfig = async (): Promise<TranslateConfig> =>
   invoke<TranslateConfig>("get_translate_config");
 

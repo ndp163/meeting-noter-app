@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { listen, emit } from "@tauri-apps/api/event";
 import { Sidebar } from "@/features/home/sidebar";
 import { MainContent } from "@/features/home/main-content";
+import { Toaster } from "@/features/toast/toaster";
 import {
   getTranscriptionStatus,
   listenToTranscription,
@@ -31,6 +32,7 @@ import {
   type SummaryProvider,
 } from "@/services/summary";
 import { useBoundStore } from "@/store";
+import { friendlyError } from "@/lib/utils";
 import type { TranscriptMessage } from "@/types/meeting";
 import type { MainTab } from "@/features/home/main-content";
 
@@ -47,6 +49,8 @@ export const HomePage = () => {
   const [summaryError, setSummaryError] = useState<string>();
   const [translatingMeetingId, setTranslatingMeetingId] = useState<string | null>(null);
   const [translateError, setTranslateError] = useState<string>();
+  // Configured summary-translation target (from Settings › Translation).
+  const [translateTarget, setTranslateTarget] = useState<string>("");
   const [claudeReady, setClaudeReady] = useState<boolean>();
   const [localReady, setLocalReady] = useState<boolean>();
   const [summaryProvider, setSummaryProvider] = useState<SummaryProvider>("claude");
@@ -77,6 +81,7 @@ export const HomePage = () => {
   const getCapturingMeeting = useBoundStore.use.getCapturingMeeting();
   const captureLanguage = useBoundStore.use.captureLanguage();
   const openSettings = useBoundStore.use.openSettings();
+  const pushToast = useBoundStore.use.pushToast();
 
   // Derived: only true when the CURRENT meeting is the one being processed.
   const isDiarizing = diarizingMeetingId === currentMeetingId;
@@ -106,7 +111,9 @@ export const HomePage = () => {
       }
     } catch (error) {
       console.error("Diarization failed", error);
-      setDiarizationError(String(error));
+      setDiarizationError(
+        friendlyError(error, "Speaker identification failed. Please try again."),
+      );
     } finally {
       setDiarizingMeetingId(null);
     }
@@ -132,7 +139,9 @@ export const HomePage = () => {
       }
     } catch (error) {
       console.error("Summary failed", error);
-      setSummaryError(String(error));
+      setSummaryError(
+        friendlyError(error, "Couldn't generate the summary. Please try again."),
+      );
     } finally {
       setSummarizingMeetingId(null);
     }
@@ -140,18 +149,30 @@ export const HomePage = () => {
 
   const handleTranslateSummary = async () => {
     if (!currentMeetingId || translatingMeetingId !== null) return;
+    if (!translateTarget) {
+      pushToast(
+        "Choose a translation language in Settings → Translation first.",
+        "info",
+      );
+      return;
+    }
     setTranslatingMeetingId(currentMeetingId);
     setTranslateError(undefined);
     try {
-      const summaryVi = await translateSummary(currentMeetingId);
-      setSummaryTranslation(currentMeetingId, summaryVi);
+      const text = await translateSummary(currentMeetingId, translateTarget);
+      setSummaryTranslation(currentMeetingId, translateTarget, text);
       const meeting = getCurrentMeeting();
       if (meeting) {
-        await saveMeeting({ ...meeting, summaryVi });
+        await saveMeeting({
+          ...meeting,
+          summaryTranslation: { lang: translateTarget, text },
+        });
       }
     } catch (error) {
       console.error("Translation failed", error);
-      setTranslateError(String(error));
+      setTranslateError(
+        friendlyError(error, "Translation failed. Please try again."),
+      );
     } finally {
       setTranslatingMeetingId(null);
     }
@@ -229,7 +250,11 @@ export const HomePage = () => {
       .then((p) => mounted && setSummaryProvider(p))
       .catch(() => {});
     void getTranslateConfig()
-      .then((c) => mounted && setTranscriptView(c.view))
+      .then((c) => {
+        if (!mounted) return;
+        setTranscriptView(c.view);
+        setTranslateTarget(c.target);
+      })
       .catch(() => {});
     isClaudeAvailable()
       .then((ready) => mounted && setClaudeReady(ready))
@@ -267,7 +292,7 @@ export const HomePage = () => {
                 const path = await getMeetingAudioPath(mostRecent.id);
                 setAudioPath(path);
               } catch (e) {
-                console.log("No audio available for this meeting");
+                // No audio for this meeting — leave the player empty.
               }
             }
           }
@@ -307,17 +332,6 @@ export const HomePage = () => {
     let unlisten: (() => void) | null = null;
 
     listenToTranscription((payload) => {
-      console.log(
-        "Event received:",
-        payload.text,
-        "at",
-        payload.received_at_ms,
-        "is_result_final:",
-        payload.is_result_final,
-        "is_sentence_final:",
-        payload.is_sentence_final,
-      );
-
       const meeting = getCapturingMeeting();
       if (!meeting) return;
 
@@ -381,7 +395,6 @@ export const HomePage = () => {
       addTranscriptToMeeting(meeting.id, newMessage);
     })
       .then((release) => {
-        console.log("Transcription listener registered");
         unlisten = release;
       })
       .catch((error) => {
@@ -389,7 +402,6 @@ export const HomePage = () => {
       });
 
     return () => {
-      console.log("Cleaning up transcription listener");
       if (unlisten) {
         unlisten();
       }
@@ -441,12 +453,16 @@ export const HomePage = () => {
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Auto-scroll to bottom when new messages arrive
+  // Auto-scroll to bottom when new messages arrive. During capture, updates
+  // fire on every ASR token — use instant scroll so smooth animations don't
+  // queue up and stutter; reserve smooth for the occasional post-capture case.
   useEffect(() => {
     if (messagesEndRef.current && isAutoScroll) {
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+      messagesEndRef.current.scrollIntoView({
+        behavior: isCapturing ? "auto" : "smooth",
+      });
     }
-  }, [messages, isAutoScroll]);
+  }, [messages, isAutoScroll, isCapturing]);
 
   const handleCaptureToggle = async () => {
     if (isCaptureBusy) {
@@ -490,6 +506,12 @@ export const HomePage = () => {
       }
     } catch (error) {
       console.error("Failed to toggle capture", error);
+      setIsCapturing(false);
+      setIsPreparingModel(false);
+      pushToast(
+        "Recording failed — check microphone permissions and try again.",
+        "error",
+      );
     } finally {
       setIsCaptureBusy(false);
     }
@@ -497,7 +519,10 @@ export const HomePage = () => {
 
   const handleMeetingSelect = async (id: string) => {
     if (isCapturing && id !== currentMeetingId) {
-      alert("Please stop the current recording before switching meetings");
+      pushToast(
+        "Stop the current recording before switching meetings.",
+        "info",
+      );
       return;
     }
     setCurrentMeetingId(id);
@@ -506,13 +531,11 @@ export const HomePage = () => {
     const existingMeeting = meetings.find((m) => m.id === id);
     if (existingMeeting?.transcript && existingMeeting.transcript.length > 0) {
       // Meeting already has data in store, just load audio if needed
-      console.log("Meeting already in store, using existing data");
       if (existingMeeting.status === "completed") {
         try {
           const path = await getMeetingAudioPath(id);
           setAudioPath(path);
         } catch (e) {
-          console.log("No audio available for this meeting");
           setAudioPath(undefined);
         }
       } else {
@@ -532,7 +555,6 @@ export const HomePage = () => {
           const path = await getMeetingAudioPath(id);
           setAudioPath(path);
         } catch (e) {
-          console.log("No audio available for this meeting");
           setAudioPath(undefined);
         }
       } else {
@@ -559,7 +581,7 @@ export const HomePage = () => {
       }
     } catch (error) {
       console.error("Failed to delete meeting", error);
-      alert("Failed to delete meeting: " + error);
+      pushToast("Couldn't delete the meeting. Please try again.", "error");
     }
   };
 
@@ -602,6 +624,13 @@ export const HomePage = () => {
     void emit("tray://recording-state", { active: isCapturing });
   }, [isCapturing]);
 
+  // Mirror recording state into the store so any surface (e.g. the update
+  // banner) can guard against interrupting an in-progress recording.
+  const setRecording = useBoundStore.use.setRecording();
+  useEffect(() => {
+    setRecording(isCapturing);
+  }, [isCapturing, setRecording]);
+
   return (
     <div className="relative flex h-screen ds-root ds-theme-vintage bg-[var(--ds-bg)]">
       {/* Sidebar */}
@@ -623,6 +652,8 @@ export const HomePage = () => {
         setActiveTab={setActiveTab}
         isCapturing={isCapturing}
         isPreparingModel={isPreparingModel}
+        isCaptureBusy={isCaptureBusy}
+        onToggleCapture={handleCaptureToggle}
         messages={messages}
         currentMeetingId={currentMeetingId}
         audioPath={audioPath}
@@ -635,7 +666,8 @@ export const HomePage = () => {
         onRunDiarization={handleRunDiarization}
         onRenameSpeaker={handleRenameSpeaker}
         summary={currentMeeting?.summary}
-        summaryVi={currentMeeting?.summaryVi}
+        summaryTranslation={currentMeeting?.summaryTranslation}
+        translateTarget={translateTarget}
         isSummarizing={isSummarizing}
         isTranslating={isTranslating}
         summaryError={summaryError}
@@ -646,6 +678,8 @@ export const HomePage = () => {
         onRunSummary={handleGenerateSummary}
         onTranslateSummary={handleTranslateSummary}
       />
+
+      <Toaster />
     </div>
   );
 };

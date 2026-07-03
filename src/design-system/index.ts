@@ -22,6 +22,9 @@ export type { CardProps } from "./Card";
 export { Modal } from "./Modal";
 export type { ModalProps } from "./Modal";
 
+export { ConfirmDialog } from "./ConfirmDialog";
+export type { ConfirmDialogProps } from "./ConfirmDialog";
+
 export { MeetingCard } from "./MeetingCard";
 export type { MeetingCardProps, MeetingSource } from "./MeetingCard";
 
@@ -30,6 +33,9 @@ export type { MessageProps } from "./Message";
 
 export { PillToggle } from "./PillToggle";
 export type { PillToggleProps, PillOption } from "./PillToggle";
+
+export { Select } from "./Select";
+export type { SelectProps, SelectOption } from "./Select";
 
 export { Avatar } from "./Avatar";
 export type { AvatarProps, AvatarSize } from "./Avatar";

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
+import { friendlyError } from "@/lib/utils";
 import { useBoundStore } from "@/store";
 import {
+  cancelDownloadLanguage,
   deleteLanguage,
   downloadLanguage,
   fetchModelSizes,
@@ -56,7 +58,16 @@ export const useModelManager = () => {
         await refresh();
         return true;
       } catch (e) {
-        setErrors((er) => ({ ...er, [language]: String(e) }));
+        // A user cancel isn't an error — clear state quietly.
+        if (String(e).toLowerCase().includes("cancel")) {
+          setErrors((er) => ({ ...er, [language]: undefined }));
+          return false;
+        }
+        console.error("Model download failed", language, e);
+        setErrors((er) => ({
+          ...er,
+          [language]: friendlyError(e, "Download failed — please try again."),
+        }));
         return false;
       } finally {
         setDownloading((d) => d.filter((l) => l !== language));
@@ -74,6 +85,10 @@ export const useModelManager = () => {
     [refresh],
   );
 
+  const cancel = useCallback((language: MeetingLanguage) => {
+    void cancelDownloadLanguage(language);
+  }, []);
+
   return {
     /** Installed languages, or null until the first load resolves. */
     installed,
@@ -84,6 +99,7 @@ export const useModelManager = () => {
     sizes,
     download,
     remove,
+    cancel,
     isInstalled: (l: MeetingLanguage) => installed?.includes(l) ?? false,
     isDownloading: (l: MeetingLanguage) => downloading.includes(l),
   };

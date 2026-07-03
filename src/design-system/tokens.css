@@ -16,8 +16,11 @@
   /* text */
   --ds-text:        #3a3128;  /* brown ink */
   --ds-text-2:      #6b5f4f;  /* secondary */
-  --ds-text-3:      #9b8e78;  /* tertiary / meta */
+  --ds-text-3:      #786b54;  /* tertiary / meta — darkened to ~4.8:1 on surface (WCAG AA) */
   --ds-on-accent:   #fbf6ec;
+
+  /* focus ring colour (keyboard focus-visible) */
+  --ds-focus:       var(--ds-accent);
 
   /* accent — terracotta */
   --ds-accent:      #b5552f;
@@ -31,6 +34,7 @@
   --ds-ok:          #6f7a4d;  /* olive */
 
   /* radius */
+  --ds-radius-xs:   8px;
   --ds-radius-sm:   10px;
   --ds-radius:      14px;
   --ds-radius-lg:   20px;
@@ -70,7 +74,7 @@
 
   --ds-text:        #1f2421;
   --ds-text-2:      #6b716d;
-  --ds-text-3:      #9b9f9c;
+  --ds-text-3:      #6f756f;  /* darkened to ~4.7:1 on white (WCAG AA) */
   --ds-on-accent:   #ffffff;
 
   --ds-accent:      #2f5bea;  /* cool blue */

@@ -11,6 +11,7 @@ export interface CaptureButtonProps extends ButtonHTMLAttributes<HTMLButtonEleme
 export const CaptureButton = ({ capturing, className, ...rest }: CaptureButtonProps) => (
   <button
     className={clsx("ds-capture", capturing && "ds-capture--active", className)}
+    aria-pressed={capturing}
     {...rest}
   >
     {capturing ? <Square size={18} /> : <Mic size={18} />}

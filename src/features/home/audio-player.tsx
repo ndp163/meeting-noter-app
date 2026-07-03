@@ -25,6 +25,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentTime, setCurrentTime] = useState("00:00");
   const [totalTime, setTotalTime] = useState("00:00");
+  const [loadError, setLoadError] = useState(false);
   // Keep the latest callback in a ref so the timeupdate subscription stays stable.
   const onTimeUpdateRef = useRef(onTimeUpdate);
   onTimeUpdateRef.current = onTimeUpdate;
@@ -44,6 +45,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
   });
 
   useEffect(() => {
+    setLoadError(false);
     if (!audioPath) {
       setCurrentTime("00:00");
       setTotalTime("00:00");
@@ -51,7 +53,6 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
   }, [audioPath]);
 
   useEffect(() => {
-    console.log("Wavesurfer instance:", wavesurfer);
     if (!wavesurfer) {
       setCurrentTime("00:00");
       setTotalTime("00:00");
@@ -66,6 +67,10 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
       wavesurfer.on("timeupdate", (time) => {
         setCurrentTime(formatTime(time));
         onTimeUpdateRef.current?.(time);
+      }),
+      wavesurfer.on("error", (err) => {
+        console.error("Audio load failed", err);
+        setLoadError(true);
       }),
     ];
 
@@ -111,12 +116,16 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
 
       {/* Waveform */}
       <div className="h-[56px] flex-1 overflow-hidden">
-        {audioPath ? (
-          <div ref={containerRef} className="w-full h-full" />
-        ) : (
+        {!audioPath ? (
           <div className="w-full h-full flex items-center justify-center text-[var(--ds-text-2)] text-sm">
             No audio available
           </div>
+        ) : loadError ? (
+          <div className="w-full h-full flex items-center justify-center text-[var(--ds-rec)] text-sm">
+            Couldn&apos;t load the audio
+          </div>
+        ) : (
+          <div ref={containerRef} className="w-full h-full" />
         )}
       </div>
 

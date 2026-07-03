@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Download, X } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { useBoundStore } from "@/store";
+import { ConfirmDialog } from "@/design-system";
 
 /**
  * Passive update surface. Checks once on mount and slides a banner in at the top
@@ -22,6 +23,8 @@ export const UpdateBanner = () => {
   const dismissUpdate = useBoundStore.use.dismissUpdate();
   const loadCurrentVersion = useBoundStore.use.loadCurrentVersion();
   const openSettings = useBoundStore.use.openSettings();
+  const isRecording = useBoundStore.use.isRecording();
+  const [confirmInstall, setConfirmInstall] = useState(false);
 
   useEffect(() => {
     void loadCurrentVersion();
@@ -42,6 +45,7 @@ export const UpdateBanner = () => {
   if (!installing && !showAvailable) return null;
 
   return (
+    <>
     <div className="fixed top-0 inset-x-0 z-50 flex items-center gap-3 px-5 py-2.5 bg-[var(--ds-accent)] text-[var(--ds-on-accent)] text-sm shadow-[var(--ds-shadow)]">
       <Download className="w-4 h-4 shrink-0" />
 
@@ -67,7 +71,7 @@ export const UpdateBanner = () => {
             What&apos;s new
           </button>
           <button
-            onClick={() => void runInstall()}
+            onClick={() => setConfirmInstall(true)}
             className="font-semibold underline underline-offset-2"
           >
             Install &amp; restart
@@ -82,5 +86,24 @@ export const UpdateBanner = () => {
         </>
       )}
     </div>
+
+    <ConfirmDialog
+      open={confirmInstall}
+      title="Install update & restart?"
+      message={
+        isRecording
+          ? "A recording is in progress. Stop it before installing — restarting now would lose the in-progress recording."
+          : "The app will download the update and restart. Any unsaved work will be interrupted."
+      }
+      confirmLabel="Install & restart"
+      confirmDisabled={isRecording}
+      confirmIcon={<Download className="w-4 h-4" />}
+      onConfirm={() => {
+        setConfirmInstall(false);
+        void runInstall();
+      }}
+      onCancel={() => setConfirmInstall(false)}
+    />
+    </>
   );
 };

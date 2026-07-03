@@ -105,6 +105,7 @@ extern "C" {
         context: *mut c_void,
     );
     fn fluid_audio_delete_language(language: *const c_char) -> bool;
+    fn fluid_audio_cancel_download(language: *const c_char);
 
     // VAD functions
     fn fluid_audio_vad_create_state(stream_id: *const c_char) -> bool;
@@ -231,6 +232,16 @@ impl FluidAudio {
 
         rx.await
             .map_err(|_| "Download callback not received".to_string())?
+    }
+
+    /// Cancel an in-flight `download_language_with_progress` for `language`.
+    /// No-op if nothing is downloading; the download future then resolves with
+    /// a "cancelled" error.
+    pub fn cancel_download(language: &str) {
+        let Ok(c_lang) = CString::new(language) else {
+            return;
+        };
+        unsafe { fluid_audio_cancel_download(c_lang.as_ptr()) }
     }
 
     /// Remove the ASR model cache for `language` to reclaim disk. The shared

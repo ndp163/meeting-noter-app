@@ -8,10 +8,11 @@ interface MessageProps {
   isUser?: boolean;
   onSeek?: () => void;
   active?: boolean;
+  pending?: boolean;
 }
 
 /** Transcript line — thin wrapper over the design-system Message. */
-export const Message = ({ label, timestamp, content, translation, isUser, onSeek, active }: MessageProps) => (
+export const Message = ({ label, timestamp, content, translation, isUser, onSeek, active, pending }: MessageProps) => (
   <DSMessage
     speaker={label}
     timestamp={timestamp}
@@ -20,5 +21,6 @@ export const Message = ({ label, timestamp, content, translation, isUser, onSeek
     isUser={isUser}
     onSeek={onSeek}
     active={active}
+    pending={pending}
   />
 );
