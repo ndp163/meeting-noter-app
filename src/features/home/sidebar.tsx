@@ -355,9 +355,21 @@ const MeetingCard = ({
         title={meeting.title}
       >
         {meeting.status === "recording" ? (
-          <div className="w-2 h-2 rounded-full bg-[var(--ds-rec)] animate-pulse" />
+          <div
+            className="animate-pulse bg-[var(--ds-rec)]"
+            style={{
+              width: 8, height: 8, minWidth: 8, minHeight: 8,
+              flex: "0 0 auto", borderRadius: "50%",
+            }}
+          />
         ) : (
-          <div className="w-2 h-2 rounded-full bg-[var(--ds-text)]" />
+          <div
+            className="bg-[var(--ds-text)]"
+            style={{
+              width: 8, height: 8, minWidth: 8, minHeight: 8,
+              flex: "0 0 auto", borderRadius: "50%",
+            }}
+          />
         )}
       </div>
     );
