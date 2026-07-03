@@ -75,11 +75,6 @@ tdtJa); the engine switches models automatically when you change language.
 - **On-device** — capture, VAD, segmentation, and recognition all run locally on
   the Neural Engine. Nothing is uploaded; your meeting stays on your disk.
 
----
-
-*Want the engineering-level detail (thresholds, threading, constants)? See
-[`../src-tauri/TRANSCRIPTION.md`](../src-tauri/TRANSCRIPTION.md).*
-
 <!-- Need a raster GIF (e.g. for a slide deck or a site that won't animate SVG)?
      Convert the SVG in one step, no extra tooling beyond a headless Chrome + gif encoder:
        npx @svgdotjs/svg.js ... (or)
