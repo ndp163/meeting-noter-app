@@ -29,6 +29,9 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
   // Keep the latest callback in a ref so the timeupdate subscription stays stable.
   const onTimeUpdateRef = useRef(onTimeUpdate);
   onTimeUpdateRef.current = onTimeUpdate;
+  // Last position seeked to via a transcript click, so re-clicking the same
+  // sentence can toggle pause instead of restarting it.
+  const lastSeekTargetRef = useRef<number | null>(null);
 
   const { wavesurfer, isReady, isPlaying } = useWavesurfer({
     container: containerRef,
@@ -86,7 +89,14 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
         if (!wavesurfer) return;
         const duration = wavesurfer.getDuration();
         if (duration <= 0) return;
-        wavesurfer.setTime(Math.max(0, Math.min(seconds, duration)));
+        const target = Math.max(0, Math.min(seconds, duration));
+        // Re-clicking the sentence that's currently playing → pause it.
+        if (wavesurfer.isPlaying() && lastSeekTargetRef.current === target) {
+          wavesurfer.pause();
+          return;
+        }
+        lastSeekTargetRef.current = target;
+        wavesurfer.setTime(target);
         void wavesurfer.play();
       },
     }),
