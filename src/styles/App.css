@@ -18,3 +18,13 @@
     -webkit-font-smoothing: antialiased;
   }
 }
+
+/* Tailwind v4's `rounded-full` compiles to `border-radius: calc(infinity*1px)`,
+ * which the production minifier emits as `3.4e38px`. WKWebView (the Tauri
+ * release webview) rejects that scientific-notation length and drops the rule,
+ * so pill/dot elements render square in the built app but round under `tauri
+ * dev`. Pin it to a finite value that renders round in both. Unlayered so it
+ * always wins over Tailwind's layered utility. */
+.rounded-full {
+  border-radius: 9999px;
+}
