@@ -540,9 +540,16 @@ private final class FileDownloader: NSObject, URLSessionDownloadDelegate, @unche
         config.timeoutIntervalForResource = 3600
         let session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            self.continuation = cont
-            session.downloadTask(with: url).resume()
+        let task = session.downloadTask(with: url)
+        // Bridge Task cancellation to the URLSession task so a cancelled
+        // download stops the in-flight transfer, not just future work.
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                self.continuation = cont
+                task.resume()
+            }
+        } onCancel: {
+            task.cancel()
         }
     }
 
@@ -583,6 +590,27 @@ private final class FileDownloader: NSObject, URLSessionDownloadDelegate, @unche
         } else {
             cont.resume(with: result ?? .success(()))
         }
+    }
+}
+
+// Tracks in-flight downloads by language so a cancel request can reach the
+// running Task. Thread-safe: Task.cancel() is safe to call from any thread.
+private final class DownloadRegistry: @unchecked Sendable {
+    static let shared = DownloadRegistry()
+    private let lock = NSLock()
+    private var tasks: [String: Task<Void, Error>] = [:]
+
+    func set(_ lang: String, _ task: Task<Void, Error>) {
+        lock.lock(); defer { lock.unlock() }
+        tasks[lang] = task
+    }
+    func remove(_ lang: String) {
+        lock.lock(); defer { lock.unlock() }
+        tasks[lang] = nil
+    }
+    func cancel(_ lang: String) {
+        lock.lock(); let task = tasks[lang]; lock.unlock()
+        task?.cancel()
     }
 }
 
@@ -685,20 +713,43 @@ public func fluid_audio_download_language(
     let base = baseURL != nil ? String(cString: baseURL!) : ""
     let manifest = manifestURL != nil ? String(cString: manifestURL!) : ""
     let sink = ProgressSink(callback: progress, context: context)
+    // The download runs in a registered Task so `fluid_audio_cancel_download`
+    // can cancel it; a wrapper Task awaits the result and reports back.
+    let work = Task { () -> Void in
+        try await downloadLanguageFromS3(
+            lang: lang, baseURL: base, manifestURL: manifest,
+            report: { sink.report($0) })
+    }
+    DownloadRegistry.shared.set(lang, work)
     Task {
+        defer { DownloadRegistry.shared.remove(lang) }
         do {
-            try await downloadLanguageFromS3(
-                lang: lang, baseURL: base, manifestURL: manifest,
-                report: { sink.report($0) })
+            try await work.value
             let ok = strdup("success")
             callback?(ok, nil, context)
             free(ok)
+        } catch is CancellationError {
+            let err = strdup("cancelled")
+            callback?(nil, err, context)
+            free(err)
+        } catch let error as URLError where error.code == .cancelled {
+            let err = strdup("cancelled")
+            callback?(nil, err, context)
+            free(err)
         } catch {
             let err = strdup(error.localizedDescription)
             callback?(nil, err, context)
             free(err)
         }
     }
+}
+
+// Cancel an in-flight `fluid_audio_download_language` for `language`, if any.
+// No-op when nothing is downloading for that language.
+@_cdecl("fluid_audio_cancel_download")
+public func fluid_audio_cancel_download(language: UnsafePointer<CChar>?) {
+    let lang = language != nil ? String(cString: language!) : ""
+    DownloadRegistry.shared.cancel(lang)
 }
 
 // Remove the ASR model cache for `language` to reclaim disk. The shared diarizer

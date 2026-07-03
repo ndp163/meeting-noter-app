@@ -17,6 +17,8 @@ export interface MessageProps {
   onSeek?: () => void;
   /** Highlight this line as the segment currently playing. */
   active?: boolean;
+  /** Text is still interim (not finalized by ASR) — rendered dimmed/italic. */
+  pending?: boolean;
 }
 
 /** A single transcript line: speaker, timestamp, body. */
@@ -29,6 +31,7 @@ export const Message = ({
   divided,
   onSeek,
   active,
+  pending,
 }: MessageProps) => {
   // Click anywhere on the body seeks — unless the user is selecting text to copy.
   const handleBodyClick = () => {
@@ -53,8 +56,25 @@ export const Message = ({
         )}
       </div>
       <p
-        className={clsx("ds-msg__body", onSeek && "ds-msg__body--seekable")}
+        className={clsx(
+          "ds-msg__body",
+          onSeek && "ds-msg__body--seekable",
+          pending && "ds-msg__body--pending",
+        )}
         onClick={onSeek ? handleBodyClick : undefined}
+        role={onSeek ? "button" : undefined}
+        tabIndex={onSeek ? 0 : undefined}
+        aria-label={onSeek ? "Jump to this moment" : undefined}
+        onKeyDown={
+          onSeek
+            ? (e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  onSeek();
+                }
+              }
+            : undefined
+        }
       >
         {content}
       </p>

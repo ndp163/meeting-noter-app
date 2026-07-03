@@ -1,7 +1,7 @@
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { clsx } from "./util";
 
-export type ButtonVariant = "primary" | "ghost" | "accent";
+export type ButtonVariant = "primary" | "ghost" | "accent" | "danger";
 export type ButtonSize = "sm" | "md" | "lg";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

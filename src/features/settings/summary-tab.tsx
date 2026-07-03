@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { AlertCircle, Check, Download, Loader2, Trash2 } from "lucide-react";
-import { Button } from "@/design-system";
+import { Button, ConfirmDialog } from "@/design-system";
 import { cn } from "@/lib/utils";
 import { DownloadIndicator } from "@/features/models/download-indicator";
 import { useLocalModel } from "@/features/models/use-local-model";
@@ -18,6 +18,7 @@ export const SummaryTab = () => {
   const { provider, setProvider, installed, downloading, progress, error, download, remove } =
     useLocalModel();
   const [claudeReady, setClaudeReady] = useState<boolean>();
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   useEffect(() => {
     isClaudeAvailable()
@@ -26,7 +27,11 @@ export const SummaryTab = () => {
   }, []);
 
   return (
-    <div className="flex flex-col gap-3 min-w-[420px]">
+    <div
+      className="flex flex-col gap-3"
+      role="radiogroup"
+      aria-label="Summary engine"
+    >
       <p className="text-sm text-[var(--ds-text-2)]">
         Choose how meeting summaries are generated. Either way your transcript
         stays on this machine.
@@ -83,7 +88,7 @@ export const SummaryTab = () => {
                 variant="ghost"
                 size="sm"
                 icon={<Trash2 className="w-4 h-4" />}
-                onClick={() => void remove()}
+                onClick={() => setConfirmRemove(true)}
                 aria-label="Remove on-device model"
               >
                 Remove
@@ -110,6 +115,20 @@ export const SummaryTab = () => {
           </p>
         )}
       </ProviderCard>
+
+      <ConfirmDialog
+        open={confirmRemove}
+        title="Remove on-device model?"
+        message="The ~2.3 GB on-device model will be deleted from disk. You’ll need to download it again to generate summaries offline."
+        confirmLabel="Remove"
+        confirmVariant="danger"
+        confirmIcon={<Trash2 className="w-4 h-4" />}
+        onConfirm={() => {
+          void remove();
+          setConfirmRemove(false);
+        }}
+        onCancel={() => setConfirmRemove(false)}
+      />
     </div>
   );
 };

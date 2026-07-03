@@ -12,9 +12,10 @@ export const summarizeMeeting = async (
 };
 
 export const translateSummary = async (
-  meetingId: string
+  meetingId: string,
+  target: string
 ): Promise<string> => {
-  return await invoke<string>("translate_summary", { meetingId });
+  return await invoke<string>("translate_summary", { meetingId, target });
 };
 
 export const generateTitle = async (

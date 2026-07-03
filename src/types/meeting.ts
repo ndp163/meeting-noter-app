@@ -37,5 +37,8 @@ export interface Meeting {
   transcript: TranscriptMessage[];
   diarization?: DiarizedSegment[];
   summary?: string;
-  summaryVi?: string;
+  /** On-demand translation of `summary`, keyed by the target language it was
+   *  produced for (from the Translation settings target). Invalidated when the
+   *  summary is regenerated. */
+  summaryTranslation?: { lang: string; text: string };
 }

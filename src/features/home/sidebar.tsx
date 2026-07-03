@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Mic,
   Square,
@@ -9,13 +9,22 @@ import {
   Loader2,
   Settings,
   Download,
+  Check,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import type { Meeting } from "@/types/meeting";
+import { cn, formatBytes } from "@/lib/utils";
+import { fetchModelSizes } from "@/services/setup";
+import type { Meeting, MeetingLanguage } from "@/types/meeting";
 import { useBoundStore } from "@/store";
-import { Brand, CaptureButton, IconButton, PillToggle } from "@/design-system";
+import { SIDEBAR_COLLAPSE_AT } from "@/store/ui.slice";
+import {
+  Brand,
+  CaptureButton,
+  ConfirmDialog,
+  IconButton,
+  Select,
+} from "@/design-system";
 import { SettingsModal } from "@/features/settings/settings-modal";
-import { languageInfo } from "@/lib/languages";
+import { LANGUAGES, languageInfo } from "@/lib/languages";
 
 interface SidebarProps {
   meetings: Meeting[];
@@ -42,6 +51,9 @@ export const Sidebar = ({
 }: SidebarProps) => {
   const isSidebarCollapsed = useBoundStore.use.isSidebarCollapsed();
   const toggleSidebar = useBoundStore.use.toggleSidebar();
+  const sidebarWidth = useBoundStore.use.sidebarWidth();
+  const setSidebarWidth = useBoundStore.use.setSidebarWidth();
+  const setSidebarCollapsed = useBoundStore.use.setSidebarCollapsed();
   const captureLanguage = useBoundStore.use.captureLanguage();
   const setCaptureLanguage = useBoundStore.use.setCaptureLanguage();
   const installedLanguages = useBoundStore.use.installedLanguages();
@@ -54,6 +66,15 @@ export const Sidebar = ({
   useEffect(() => {
     void refreshInstalledLanguages();
   }, [refreshInstalledLanguages]);
+
+  // Real per-language download sizes from the manifest (bytes). Best-effort:
+  // stays empty offline, and the picker then shows just a download icon.
+  const [modelSizes, setModelSizes] = useState<
+    Partial<Record<MeetingLanguage, number>>
+  >({});
+  useEffect(() => {
+    void fetchModelSizes().then((s) => s && setModelSizes(s));
+  }, []);
 
   // `null` while loading — treat as installed so we don't flash a prompt.
   const langReady =
@@ -69,13 +90,46 @@ export const Sidebar = ({
     onToggleCapture();
   };
 
+  // Meeting queued for deletion — non-null shows the confirm dialog.
+  const [pendingDelete, setPendingDelete] = useState<Meeting | null>(null);
+
+  // Drag the right edge to resize. Dragging narrower than SIDEBAR_COLLAPSE_AT
+  // snaps to the collapsed icon rail; committed width is clamped in the store.
+  const [isResizing, setIsResizing] = useState(false);
+  const startResize = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      setIsResizing(true);
+      const onMove = (ev: PointerEvent) => {
+        const w = ev.clientX;
+        if (w < SIDEBAR_COLLAPSE_AT) {
+          setSidebarCollapsed(true);
+        } else {
+          if (isSidebarCollapsed) setSidebarCollapsed(false);
+          setSidebarWidth(w);
+        }
+      };
+      const onUp = () => {
+        setIsResizing(false);
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    },
+    [isSidebarCollapsed, setSidebarCollapsed, setSidebarWidth],
+  );
+
   return (
     <div
       className={cn(
-        "flex flex-col gap-2.5 h-screen px-2.5 py-5 border-r border-[var(--ds-border)]",
-        isSidebarCollapsed ? "w-16" : "w-full max-w-[411px]",
+        "relative flex flex-col gap-2.5 h-screen px-2.5 py-5 border-r border-[var(--ds-border)] shrink-0",
+        isResizing ? "select-none" : "transition-[width] duration-150",
       )}
-      style={{ background: "var(--ds-surface)" }}
+      style={{
+        width: isSidebarCollapsed ? 64 : sidebarWidth,
+        background: "var(--ds-surface)",
+      }}
     >
       {/* Header */}
       <div
@@ -123,26 +177,44 @@ export const Sidebar = ({
 
       {/* Transcription language — locked while a recording is in progress. */}
       {!isSidebarCollapsed && (
-        <>
-          <PillToggle
-            className={cn(isCapturing && "pointer-events-none opacity-50")}
+        <div
+          title={isCapturing ? "Stop recording to change language" : undefined}
+        >
+          <Select
+            label="Transcribe language"
+            disabled={isCapturing}
             value={captureLanguage}
             onChange={(id) => setCaptureLanguage(id as "en" | "ja")}
-            options={[
-              { id: "en", label: "English" },
-              { id: "ja", label: "日本語" },
-            ]}
+            options={LANGUAGES.map((l) => {
+              // `null` while loading — assume installed so we don't flash a badge.
+              const installed =
+                installedLanguages === null ||
+                installedLanguages.includes(l.id);
+              return {
+                id: l.id,
+                label: l.native,
+                hint: l.label,
+                trailing: installed ? (
+                  <Check className="w-4 h-4 text-[var(--ds-ok)]" />
+                ) : (
+                  <>
+                    <Download className="w-3.5 h-3.5" />
+                    {modelSizes[l.id] ? formatBytes(modelSizes[l.id]!) : null}
+                  </>
+                ),
+              };
+            })}
           />
           {!langReady && !isCapturing && (
             <button
               onClick={() => openSettings("models")}
-              className="flex items-center gap-1.5 self-start text-xs text-[var(--ds-accent)] hover:underline px-1"
+              className="flex items-center gap-1.5 self-start text-xs text-[var(--ds-accent)] hover:underline px-1 pt-2"
             >
               <Download className="w-3.5 h-3.5" />
               {languageInfo(captureLanguage).label} model not installed — download
             </button>
           )}
-        </>
+        </div>
       )}
 
       {/* Meetings List */}
@@ -158,7 +230,7 @@ export const Sidebar = ({
               meeting={meeting}
               isActive={meeting.id === activeMeetingId}
               onClick={() => onMeetingSelect(meeting.id)}
-              onDelete={() => onDeleteMeeting(meeting.id)}
+              onDelete={() => setPendingDelete(meeting)}
               onRename={(title) => onRenameMeeting(meeting.id, title)}
               isCollapsed={isSidebarCollapsed}
               isTitling={meeting.id === titlingMeetingId}
@@ -168,6 +240,43 @@ export const Sidebar = ({
       </div>
 
       <SettingsModal open={settingsOpen} onClose={closeSettings} />
+
+      {/* Delete confirmation — guards against accidental removal. */}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete meeting?"
+        message={
+          <>
+            “{pendingDelete?.title}” and its transcript will be permanently
+            deleted. This can’t be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        confirmVariant="danger"
+        confirmIcon={<Trash2 className="w-4 h-4" />}
+        onConfirm={() => {
+          if (pendingDelete) onDeleteMeeting(pendingDelete.id);
+          setPendingDelete(null);
+        }}
+        onCancel={() => setPendingDelete(null)}
+      />
+
+      {/* Resize handle — hidden in the collapsed rail (drag to expand instead). */}
+      {!isSidebarCollapsed && (
+        <div
+          onPointerDown={startResize}
+          onDoubleClick={toggleSidebar}
+          title="Drag to resize · double-click to collapse"
+          className={cn(
+            "absolute top-0 right-0 h-full w-1.5 translate-x-1/2 cursor-col-resize z-10",
+            "transition-colors duration-150",
+            // Fainter tint on hover, with a short delay so a passing cursor
+            // doesn't flash it; full accent only while actively dragging.
+            "hover:delay-100 hover:bg-[color-mix(in_srgb,var(--ds-accent)_30%,transparent)]",
+            isResizing && "bg-[var(--ds-accent)]",
+          )}
+        />
+      )}
     </div>
   );
 };
@@ -229,6 +338,16 @@ const MeetingCard = ({
     return (
       <div
         onClick={onClick}
+        role="button"
+        tabIndex={0}
+        aria-current={isActive ? "true" : undefined}
+        aria-label={meeting.title}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onClick();
+          }
+        }}
         className={cn(
           "flex items-center justify-center min-h-[40px] p-2 rounded-[var(--ds-radius-sm)] cursor-pointer relative",
           isActive ? "bg-[var(--ds-border)]" : "hover:bg-[var(--ds-surface-2)]",
@@ -247,6 +366,17 @@ const MeetingCard = ({
   return (
     <div
       onClick={onClick}
+      role="button"
+      tabIndex={0}
+      aria-current={isActive ? "true" : undefined}
+      onKeyDown={(e) => {
+        // Ignore keys while editing the title inline.
+        if (isEditing) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
       className={cn("ds-meeting group", isActive && "ds-meeting--active")}
     >
       <div className="ds-meeting__row">

@@ -1,7 +1,8 @@
+import { useState } from "react";
 import { Check, Download, Loader2, Trash2 } from "lucide-react";
-import { Button } from "@/design-system";
+import { Button, ConfirmDialog } from "@/design-system";
 import { formatBytes } from "@/lib/utils";
-import { LANGUAGES } from "@/lib/languages";
+import { LANGUAGES, languageInfo } from "@/lib/languages";
 import type { MeetingLanguage } from "@/types/meeting";
 import { useModelManager } from "./use-model-manager";
 import { DownloadIndicator } from "./download-indicator";
@@ -11,8 +12,13 @@ import { DownloadIndicator } from "./download-indicator";
  * user download or remove it. Used inside the settings modal.
  */
 export const ModelManager = () => {
-  const { errors, progress, sizes, download, remove, isInstalled, isDownloading } =
+  const { errors, progress, sizes, download, remove, cancel, isInstalled, isDownloading } =
     useModelManager();
+
+  // Language queued for removal — non-null shows the confirm dialog.
+  const [pendingRemove, setPendingRemove] = useState<MeetingLanguage | null>(
+    null,
+  );
 
   return (
     <div className="flex flex-col gap-2">
@@ -28,13 +34,35 @@ export const ModelManager = () => {
           progress={progress[lang.id]}
           error={errors[lang.id]}
           onDownload={() => download(lang.id)}
-          onRemove={() => remove(lang.id)}
+          onRemove={() => setPendingRemove(lang.id)}
+          onCancel={() => cancel(lang.id)}
         />
       ))}
       <p className="text-xs text-[var(--ds-text-3)] mt-1">
         Models run fully offline. The shared speaker model (~13 MB) downloads
         once with your first language.
       </p>
+
+      {/* Removal confirmation — guards against accidental deletion. */}
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        title="Remove model?"
+        message={
+          <>
+            The {pendingRemove && languageInfo(pendingRemove).label} model will be
+            deleted from disk. You’ll need to download it again to transcribe in
+            this language.
+          </>
+        }
+        confirmLabel="Remove"
+        confirmVariant="danger"
+        confirmIcon={<Trash2 className="w-4 h-4" />}
+        onConfirm={() => {
+          if (pendingRemove) remove(pendingRemove);
+          setPendingRemove(null);
+        }}
+        onCancel={() => setPendingRemove(null)}
+      />
     </div>
   );
 };
@@ -50,6 +78,7 @@ interface ModelRowProps {
   error?: string;
   onDownload: () => void;
   onRemove: () => void;
+  onCancel: () => void;
 }
 
 const ModelRow = ({
@@ -62,6 +91,7 @@ const ModelRow = ({
   error,
   onDownload,
   onRemove,
+  onCancel,
 }: ModelRowProps) => (
   <div className="ds-card ds-card--flat flex flex-col gap-2 p-3">
     <div className="flex items-center gap-3">
@@ -78,10 +108,20 @@ const ModelRow = ({
       </div>
 
       {downloading ? (
-        <span className="flex items-center gap-1.5 text-xs text-[var(--ds-text-2)]">
-          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          Downloading…
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="flex items-center gap-1.5 text-xs text-[var(--ds-text-2)]">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            Downloading…
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onCancel}
+            aria-label={`Cancel ${label} download`}
+          >
+            Cancel
+          </Button>
+        </div>
       ) : installed ? (
         <div className="flex items-center gap-1.5">
           <span className="flex items-center gap-1 text-xs text-[var(--ds-ok)]">

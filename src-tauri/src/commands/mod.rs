@@ -21,7 +21,8 @@ pub use settings::{
 pub use translate::{translate_status, translate_download};
 
 pub use setup::{
-    delete_language, download_language, installed_languages, models_manifest_url, models_ready,
+    cancel_download_language, delete_language, download_language, installed_languages,
+    models_manifest_url, models_ready,
 };
 
 pub use summary::{claude_available, generate_title, summarize_meeting, translate_summary};

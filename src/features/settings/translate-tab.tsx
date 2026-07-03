@@ -1,30 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import { Check, ChevronDown, Download, Languages, Loader2 } from "lucide-react";
 import { Button, PillToggle } from "@/design-system";
-import { cn } from "@/lib/utils";
+import { cn, friendlyError } from "@/lib/utils";
 import {
   getTranslateConfig,
   setTranslateConfig,
   translateStatus,
   translateDownload,
+  TRANSLATE_TARGETS as TARGETS,
   type TranslateAvailability,
   type TranscriptView,
 } from "@/services/translation";
 import { installedLanguages } from "@/services/setup";
 import { useBoundStore } from "@/store";
 import type { MeetingLanguage } from "@/types/meeting";
-
-// Target languages Apple Translation supports that we surface. Source of a
-// translation is always the meeting's ASR language (en / ja).
-const TARGETS = [
-  { id: "vi", label: "Vietnamese" },
-  { id: "en", label: "English" },
-  { id: "ja", label: "Japanese" },
-  { id: "zh", label: "Chinese" },
-  { id: "ko", label: "Korean" },
-  { id: "es", label: "Spanish" },
-  { id: "fr", label: "French" },
-];
 
 const SOURCE_LABEL: Record<string, string> = { en: "English", ja: "Japanese" };
 
@@ -38,6 +27,7 @@ export const TranslateTab = () => {
   const [view, setView] = useState<TranscriptView>("both");
   const [sources, setSources] = useState<MeetingLanguage[]>([]);
   const setTranscriptView = useBoundStore.use.setTranscriptView();
+  const setSettingsTab = useBoundStore.use.setSettingsTab();
 
   useEffect(() => {
     getTranslateConfig()
@@ -69,7 +59,7 @@ export const TranslateTab = () => {
   const applicableSources = sources.filter((s) => s !== target);
 
   return (
-    <div className="flex flex-col gap-4 min-w-[460px]">
+    <div className="flex flex-col gap-4">
       {/* Master toggle */}
       <div className="ds-card ds-card--flat flex items-center gap-3 p-4">
         <span
@@ -96,12 +86,14 @@ export const TranslateTab = () => {
         />
       </div>
 
-      {/* Configuration — dimmed + inert when translation is off */}
+      {/* Configuration — dimmed + inert when translation is off. `inert` blocks
+          keyboard reach too (pointer-events alone leaves controls tabbable). */}
       <div
         aria-disabled={!enabled}
+        inert={!enabled}
         className={cn(
           "flex flex-col gap-5 transition-opacity",
-          !enabled && "opacity-45 pointer-events-none select-none",
+          !enabled && "opacity-45",
         )}
       >
         <Field label="Translate into">
@@ -140,13 +132,22 @@ export const TranslateTab = () => {
 
         <div className="flex flex-col gap-2">
           <span className="text-sm font-medium text-[var(--ds-text)]">
-            Offline language packs
+            Language packs
           </span>
           <div className="ds-card ds-card--flat flex flex-col divide-y divide-[var(--ds-border)]">
             {applicableSources.length === 0 ? (
-              <span className="text-xs text-[var(--ds-text-3)] px-3 py-2.5">
-                No applicable transcription languages installed.
-              </span>
+              <div className="flex flex-col items-start gap-2 px-3 py-2.5">
+                <span className="text-xs text-[var(--ds-text-3)]">
+                  No applicable transcription languages installed.
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSettingsTab("models")}
+                >
+                  Manage languages
+                </Button>
+              </div>
             ) : (
               applicableSources.map((src) => (
                 <PackRow key={src} source={src} target={target} />
@@ -188,8 +189,9 @@ const PackRow = ({ source, target }: PackRowProps) => {
     translateStatus(source, target)
       .then(setStatus)
       .catch((e) => {
+        console.error("Translate status check failed", source, target, e);
         setStatus("unsupported");
-        setError(String(e));
+        setError(friendlyError(e, "Couldn't check this language pack."));
       });
   }, [source, target]);
 
@@ -205,7 +207,8 @@ const PackRow = ({ source, target }: PackRowProps) => {
       await translateDownload(source, target);
       refresh();
     } catch (e) {
-      setError(String(e));
+      console.error("Language pack download failed", source, target, e);
+      setError(friendlyError(e, "Download failed — please try again."));
     } finally {
       setDownloading(false);
     }

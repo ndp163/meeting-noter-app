@@ -2,13 +2,17 @@ import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button, PillToggle, Prose } from "@/design-system";
 import { useBoundStore } from "@/store";
+import { targetLabel } from "@/services/translation";
 import type { SummaryProvider } from "@/services/summary";
 
 const CLAUDE_CODE_URL = "https://docs.claude.com/en/docs/claude-code/setup";
 
 interface SummaryViewProps {
   summary: string | undefined;
-  summaryVi: string | undefined;
+  /** On-demand translation of the summary + the language it was made for. */
+  summaryTranslation: { lang: string; text: string } | undefined;
+  /** Configured translation target (BCP-47 code); "" = none set. */
+  translateTarget: string;
   isLoading: boolean;
   isTranslating: boolean;
   error?: string;
@@ -21,11 +25,12 @@ interface SummaryViewProps {
   onTranslate: () => void;
 }
 
-type Lang = "en" | "vi";
+type View = "original" | "translated";
 
 export const SummaryView = ({
   summary,
-  summaryVi,
+  summaryTranslation,
+  translateTarget,
   isLoading,
   isTranslating,
   error,
@@ -36,7 +41,7 @@ export const SummaryView = ({
   onRun,
   onTranslate,
 }: SummaryViewProps) => {
-  const [lang, setLang] = useState<Lang>("en");
+  const [view, setView] = useState<View>("original");
   const openSettings = useBoundStore.use.openSettings();
 
   if (isLoading) {
@@ -117,45 +122,55 @@ export const SummaryView = ({
     );
   }
 
-  const shown = lang === "vi" ? summaryVi : summary;
+  // A translation only counts if it matches the currently-configured target;
+  // switching the target in Settings invalidates a stale one.
+  const label = translateTarget ? targetLabel(translateTarget) : "";
+  const translation =
+    summaryTranslation?.lang === translateTarget
+      ? summaryTranslation?.text
+      : undefined;
+  const showingTranslation = view === "translated" && !!translateTarget;
 
   return (
     <div className="flex flex-col gap-4">
-      <PillToggle
-        options={[
-          { id: "en", label: "Original" },
-          { id: "vi", label: "Tiếng Việt" },
-        ]}
-        value={lang}
-        onChange={(id) => setLang(id as Lang)}
-      />
+      {translateTarget && (
+        <PillToggle
+          aria-label="Summary language"
+          options={[
+            { id: "original", label: "Original" },
+            { id: "translated", label },
+          ]}
+          value={view}
+          onChange={(id) => setView(id as View)}
+        />
+      )}
 
-      {lang === "vi" && !summaryVi ? (
+      {showingTranslation && !translation ? (
         <div className="flex flex-col gap-3 items-start">
           {translateError && (
             <p className="text-sm text-[var(--ds-rec)]">{translateError}</p>
           )}
           {isTranslating ? (
             <p className="text-[var(--ds-text-2)] text-sm">
-              Đang dịch sang tiếng Việt…
+              Translating to {label}…
             </p>
           ) : (
             <Button variant="ghost" pill onClick={onTranslate}>
-              Dịch sang tiếng Việt
+              Translate to {label}
             </Button>
           )}
         </div>
       ) : (
-        <Prose markdown={shown} />
+        <Prose markdown={showingTranslation ? translation : summary} />
       )}
 
       <div className="flex items-center gap-2">
         <Button variant="ghost" pill onClick={onRun}>
           Regenerate
         </Button>
-        {lang === "vi" && summaryVi && !isTranslating && (
+        {showingTranslation && translation && !isTranslating && (
           <Button variant="ghost" pill onClick={onTranslate}>
-            Dịch lại
+            Retranslate
           </Button>
         )}
       </div>

@@ -32,6 +32,19 @@ export const SpeakerSegment = ({
   <div
     className={clsx("ds-seg", divided && "ds-seg--divided")}
     onClick={onSeek}
+    role={onSeek ? "button" : undefined}
+    tabIndex={onSeek ? 0 : undefined}
+    aria-label={onSeek ? `Jump to ${speaker} at ${timestamp}` : undefined}
+    onKeyDown={
+      onSeek
+        ? (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onSeek();
+            }
+          }
+        : undefined
+    }
     style={onSeek ? { cursor: "pointer" } : undefined}
   >
     <Avatar name={speaker} color={color} />
@@ -40,16 +53,18 @@ export const SpeakerSegment = ({
         {speaker}
         <span className="ds-seg__time">{timestamp}</span>
         {onRename && (
-          <span
+          <button
+            type="button"
             className="ds-seg__edit"
             onClick={(e) => {
               e.stopPropagation();
               onRename();
             }}
             title="Rename speaker"
+            aria-label="Rename speaker"
           >
             <Pencil size={13} />
-          </span>
+          </button>
         )}
       </div>
       <div className="ds-seg__txt">{content}</div>

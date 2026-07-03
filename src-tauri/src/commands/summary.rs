@@ -30,11 +30,29 @@ const TITLE_INSTRUCTIONS: &str = "Generate a short, descriptive title for this \
 meeting transcript. Maximum 6 words. Output the title text only — no quotes, \
 no markdown, no trailing punctuation, no commentary. The transcript follows on stdin.";
 
-const TRANSLATE_INSTRUCTIONS: &str = "Translate the following meeting summary \
-into Vietnamese. Preserve the markdown structure and heading levels exactly; \
-translate the heading text too. Keep checkbox syntax `- [ ]` intact. \
-Output only the translated markdown with no extra commentary. \
-The summary follows on stdin.";
+/// Build the translation prompt for a target language name.
+fn translate_instructions(language: &str) -> String {
+    format!(
+        "Translate the following meeting summary into {language}. Preserve the \
+markdown structure and heading levels exactly; translate the heading text too. \
+Keep checkbox syntax `- [ ]` intact. Output only the translated markdown with \
+no extra commentary. The summary follows on stdin."
+    )
+}
+
+/// Map a BCP-47 target code (from the Translation settings) to the language
+/// name used in the prompt. Mirrors the frontend `TRANSLATE_TARGETS`.
+fn target_language_name(code: &str) -> &'static str {
+    match code {
+        "vi" => "Vietnamese",
+        "ja" => "Japanese",
+        "zh" => "Chinese",
+        "ko" => "Korean",
+        "es" => "Spanish",
+        "fr" => "French",
+        _ => "English",
+    }
+}
 
 /// Common install locations to probe before falling back to a login shell.
 /// A bundled macOS `.app` launches with a minimal PATH that omits these, so
@@ -155,7 +173,7 @@ pub async fn generate_title(meeting_id: String) -> Result<String, String> {
 
 #[command]
 #[tracing::instrument]
-pub async fn translate_summary(meeting_id: String) -> Result<String, String> {
+pub async fn translate_summary(meeting_id: String, target: String) -> Result<String, String> {
     let data_path = paths::get_meeting_data_path(&meeting_id);
     if !data_path.exists() {
         return Err(format!("Meeting {} not found", meeting_id));
@@ -171,8 +189,9 @@ pub async fn translate_summary(meeting_id: String) -> Result<String, String> {
         .filter(|s| !s.trim().is_empty())
         .ok_or("Generate a summary before translating.")?;
 
-    tracing::info!("Translating summary for meeting {}", meeting_id);
-    let translated = run_inference(&meeting_id, TRANSLATE_INSTRUCTIONS, &summary, 2048).await?;
+    let instructions = translate_instructions(target_language_name(&target));
+    tracing::info!("Translating summary for meeting {} into {}", meeting_id, target);
+    let translated = run_inference(&meeting_id, &instructions, &summary, 2048).await?;
     if translated.is_empty() {
         return Err("The translation came back empty.".to_string());
     }

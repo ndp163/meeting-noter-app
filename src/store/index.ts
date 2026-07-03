@@ -4,6 +4,7 @@ import { createMeetingsSlice, MeetingsSlice } from "./meetings.slice";
 import { createUISlice, UISlice } from "./ui.slice";
 import { createModelsSlice, ModelsSlice } from "./models.slice";
 import { createUpdateSlice, UpdateSlice } from "./update.slice";
+import { createToastSlice, ToastSlice } from "./toast.slice";
 import { immer } from "zustand/middleware/immer";
 
 type WithSelectors<S> = S extends { getState: () => infer T }
@@ -26,7 +27,8 @@ type StoreState = TeamsSlice &
   MeetingsSlice &
   UISlice &
   ModelsSlice &
-  UpdateSlice;
+  UpdateSlice &
+  ToastSlice;
 
 const useBoundStoreBase = create<StoreState>()(
   immer((...a) => ({
@@ -35,6 +37,7 @@ const useBoundStoreBase = create<StoreState>()(
     ...createUISlice(...(a as Parameters<StateCreator<StoreState>>)),
     ...createModelsSlice(...(a as Parameters<StateCreator<StoreState>>)),
     ...createUpdateSlice(...(a as Parameters<StateCreator<StoreState>>)),
+    ...createToastSlice(...(a as Parameters<StateCreator<StoreState>>)),
   })) as StateCreator<StoreState, [], [], StoreState>,
 );
 

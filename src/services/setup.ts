@@ -37,9 +37,15 @@ export const modelsReady = (): Promise<boolean> => invoke<boolean>("models_ready
 export const installedLanguages = (): Promise<MeetingLanguage[]> =>
   invoke<MeetingLanguage[]>("installed_languages");
 
-/** Download one language's model; rejects on failure so the UI can retry. */
+/** Download one language's model; rejects on failure so the UI can retry.
+ *  Rejects with a "cancelled" error if `cancelDownloadLanguage` is called. */
 export const downloadLanguage = (language: MeetingLanguage): Promise<void> =>
   invoke("download_language", { language });
+
+/** Cancel an in-flight `downloadLanguage`. No-op if nothing is downloading. */
+export const cancelDownloadLanguage = (
+  language: MeetingLanguage
+): Promise<void> => invoke("cancel_download_language", { language });
 
 /** Remove a language's ASR model to reclaim disk (shared diarizer is kept). */
 export const deleteLanguage = (language: MeetingLanguage): Promise<void> =>

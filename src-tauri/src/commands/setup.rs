@@ -65,6 +65,14 @@ pub async fn download_language(app: AppHandle, language: MeetingLanguage) -> Res
     .await
 }
 
+/// Cancel an in-flight `download_language` for a language. The download command
+/// then resolves with a "cancelled" error the UI can quietly ignore.
+#[command]
+#[tracing::instrument]
+pub fn cancel_download_language(language: MeetingLanguage) {
+    FluidAudio::cancel_download(language.as_code());
+}
+
 /// Remove a language's ASR model to reclaim disk (shared diarizer is kept).
 #[command]
 #[tracing::instrument]

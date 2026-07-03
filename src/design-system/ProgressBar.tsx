@@ -15,6 +15,8 @@ export const ProgressBar = ({ value = 0, indeterminate, className }: ProgressBar
     <div
       className={clsx("ds-progress", indeterminate && "ds-progress--indeterminate", className)}
       role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
       aria-valuenow={indeterminate ? undefined : Math.round(pct)}
     >
       <span className="ds-progress__fill" style={indeterminate ? undefined : { width: `${pct}%` }} />

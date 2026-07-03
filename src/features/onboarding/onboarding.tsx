@@ -18,14 +18,26 @@ type Phase = "select" | "download";
 export const Onboarding = ({ onDone }: { onDone: () => void }) => {
   const [phase, setPhase] = useState<Phase>("select");
   const [selected, setSelected] = useState<MeetingLanguage[]>(["en"]);
-  const { errors, progress, sizes, download, isInstalled, isDownloading } =
+  const { errors, progress, sizes, download, cancel, isInstalled, isDownloading } =
     useModelManager();
+
+  // Cancel any in-flight downloads and return to the language picker.
+  const cancelAll = () => {
+    selected.forEach((l) => cancel(l));
+    setPhase("select");
+  };
 
   // Real download size when known, else the static estimate.
   const sizeOf = (lang: MeetingLanguage, fallback: string) => {
     const b = sizes[lang];
     return b ? formatBytes(b) : fallback;
   };
+
+  // Total download for the current selection (only the languages not yet
+  // installed, and only when their real sizes are known).
+  const totalBytes = selected
+    .filter((l) => !isInstalled(l))
+    .reduce((sum, l) => sum + (sizes[l] ?? 0), 0);
 
   const toggle = (lang: MeetingLanguage) =>
     setSelected((s) =>
@@ -62,15 +74,25 @@ export const Onboarding = ({ onDone }: { onDone: () => void }) => {
           title="Setting up Meeting Noter"
           subtitle="Choose the languages you'll transcribe. You can add more later."
           footer={
-            <Button
-              variant="primary"
-              block
-              disabled={selected.length === 0}
-              onClick={start}
-              style={{ marginTop: 22 }}
-            >
-              {selected.length > 1 ? "Download models" : "Download model"}
-            </Button>
+            <div className="flex flex-col gap-2" style={{ marginTop: 22 }}>
+              <Button
+                variant="primary"
+                block
+                disabled={selected.length === 0}
+                onClick={start}
+              >
+                {selected.length > 1 ? "Download models" : "Download model"}
+              </Button>
+              {selected.length === 0 ? (
+                <span className="text-xs text-[var(--ds-text-3)] text-center">
+                  Select at least one language to continue
+                </span>
+              ) : totalBytes > 0 ? (
+                <span className="text-xs text-[var(--ds-text-3)] text-center">
+                  About {formatBytes(totalBytes)} to download
+                </span>
+              ) : null}
+            </div>
           }
         >
           <div className="flex flex-col gap-2">
@@ -79,6 +101,9 @@ export const Onboarding = ({ onDone }: { onDone: () => void }) => {
               return (
                 <button
                   key={lang.id}
+                  type="button"
+                  role="checkbox"
+                  aria-checked={active}
                   onClick={() => toggle(lang.id)}
                   className={cn(
                     "flex items-center gap-3 p-3 rounded-[var(--ds-radius-sm)] border text-left transition-colors",
@@ -121,12 +146,16 @@ export const Onboarding = ({ onDone }: { onDone: () => void }) => {
           title="Setting up Meeting Noter"
           subtitle="Downloading your language models — this is a one-time step."
           footer={
-            <p
-              className="text-xs"
-              style={{ marginTop: 22, color: "var(--ds-text-3)" }}
-            >
-              Models run fully offline. Large files — usually 1–2 min each.
-            </p>
+            <div className="flex flex-col gap-3" style={{ marginTop: 22 }}>
+              <p className="text-xs" style={{ color: "var(--ds-text-3)" }}>
+                Models run fully offline. Large files — usually 1–2 min each.
+              </p>
+              {selected.some((l) => isDownloading(l)) && (
+                <Button variant="ghost" size="sm" pill onClick={cancelAll}>
+                  Cancel
+                </Button>
+              )}
+            </div>
           }
         >
           {selected.map((lang, i) => {
