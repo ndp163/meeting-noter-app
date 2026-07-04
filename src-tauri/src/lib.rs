@@ -15,6 +15,7 @@ use anyhow::Result;
 use commands::{
     start_transcription, stop_transcription, transcription_status, meeting_detection_status,
     start_recording_from_alert, dismiss_alert,
+    show_caption_window, hide_caption_window, set_caption_click_through,
     get_meetings, get_meeting_detail, save_meeting, delete_meeting, get_meeting_audio_path,
     diarize_meeting,
     models_ready, models_manifest_url, installed_languages, download_language, delete_language,
@@ -57,6 +58,9 @@ pub async fn run() -> Result<()> {
             meeting_detection_status,
             start_recording_from_alert,
             dismiss_alert,
+            show_caption_window,
+            hide_caption_window,
+            set_caption_click_through,
             get_meetings,
             get_meeting_detail,
             save_meeting,

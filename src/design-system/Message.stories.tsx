@@ -21,6 +21,16 @@ export const LocalUser: Story = {
   args: { speaker: "You", isUser: true, content: "Improved. We're clustering on embeddings now." },
 };
 
+/** Live ASR: committed text is solid, the interim tail is dimmed + italic. */
+export const Interim: Story = {
+  args: {
+    speaker: "You",
+    isUser: true,
+    content: "The transcription pipeline is shipped and",
+    partial: "stable, and we're now working on",
+  },
+};
+
 export const Thread: Story = {
   render: () => (
     <div style={{ width: 520 }}>

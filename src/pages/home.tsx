@@ -22,6 +22,7 @@ import {
 import { diarizeMeeting } from "@/services/diarization";
 import { listenToTranslation, getTranslateConfig } from "@/services/translation";
 import { detectMeetingPlatform } from "@/services/meeting-detector";
+import { showCaption, hideCaption } from "@/services/caption";
 import {
   summarizeMeeting,
   translateSummary,
@@ -630,6 +631,13 @@ export const HomePage = () => {
   useEffect(() => {
     setRecording(isCapturing);
   }, [isCapturing, setRecording]);
+
+  // Drive the live-caption overlay: visible only while recording with captions
+  // enabled. Reacts to the setting too, so toggling it mid-recording applies.
+  const captionEnabled = useBoundStore.use.captionEnabled();
+  useEffect(() => {
+    void (isCapturing && captionEnabled ? showCaption() : hideCaption());
+  }, [isCapturing, captionEnabled]);
 
   return (
     <div className="relative flex h-screen ds-root ds-theme-vintage bg-[var(--ds-bg)]">

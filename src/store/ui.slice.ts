@@ -2,7 +2,12 @@ import { StateCreator } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { MeetingLanguage } from "@/types/meeting";
 
-export type SettingsTab = "models" | "summary" | "translate" | "updates";
+export type SettingsTab =
+  | "models"
+  | "summary"
+  | "translate"
+  | "captions"
+  | "updates";
 
 /** Expanded-sidebar width bounds (px). Below MIN a drag snaps to collapsed. */
 export const SIDEBAR_MIN_WIDTH = 240;
@@ -13,6 +18,7 @@ export const SIDEBAR_COLLAPSE_AT = 200;
 
 const WIDTH_KEY = "sidebarWidth";
 const COLLAPSED_KEY = "isSidebarCollapsed";
+const CAPTION_KEY = "captionEnabled";
 
 const clampWidth = (w: number) =>
   Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, w));
@@ -22,6 +28,7 @@ const readWidth = () => {
   return stored ? clampWidth(stored) : SIDEBAR_DEFAULT_WIDTH;
 };
 const readCollapsed = () => localStorage.getItem(COLLAPSED_KEY) === "true";
+const readCaptionEnabled = () => localStorage.getItem(CAPTION_KEY) === "true";
 
 /** How translated transcript lines are shown. Set in Settings › Translation. */
 export type TranscriptView = "translated" | "both";
@@ -40,6 +47,8 @@ export interface UISlice {
   settingsTab: SettingsTab;
   /** Translation display mode (mirrors the persisted setting). */
   transcriptView: TranscriptView;
+  /** Whether the live-caption overlay shows during recording; persisted. */
+  captionEnabled: boolean;
 
   // Actions
   toggleSidebar: () => void;
@@ -51,6 +60,7 @@ export interface UISlice {
   closeSettings: () => void;
   setSettingsTab: (tab: SettingsTab) => void;
   setTranscriptView: (view: TranscriptView) => void;
+  setCaptionEnabled: (enabled: boolean) => void;
 }
 
 export const createUISlice: StateCreator<UISlice, [], [], UISlice> = immer(
@@ -62,6 +72,7 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = immer(
     settingsOpen: false,
     settingsTab: "models",
     transcriptView: "both",
+    captionEnabled: readCaptionEnabled(),
 
     toggleSidebar: () =>
       set((state) => {
@@ -110,6 +121,12 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = immer(
     setTranscriptView: (view) =>
       set((state) => {
         state.transcriptView = view;
+      }),
+
+    setCaptionEnabled: (enabled) =>
+      set((state) => {
+        state.captionEnabled = enabled;
+        localStorage.setItem(CAPTION_KEY, String(enabled));
       }),
   }),
 ) as StateCreator<UISlice, [], [], UISlice>;

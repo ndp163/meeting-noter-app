@@ -5,8 +5,11 @@ export interface MessageProps {
   speaker: string;
   /** Pre-formatted timestamp, e.g. "00:11". */
   timestamp: string;
-  /** Transcript text. Preserves line breaks. */
+  /** Transcript text (finalized / committed). Preserves line breaks. */
   content: string;
+  /** Interim tail still being revised by ASR — rendered dimmed + italic after
+   *  the committed `content`, so it's clear which words aren't locked in yet. */
+  partial?: string;
   /** Optional translated text, shown muted beneath the body. */
   translation?: string;
   /** Render the speaker in the accent colour (the local user). */
@@ -26,6 +29,7 @@ export const Message = ({
   speaker,
   timestamp,
   content,
+  partial,
   translation,
   isUser,
   divided,
@@ -77,6 +81,11 @@ export const Message = ({
         }
       >
         {content}
+        {partial && (
+          <span className="ds-msg__interim">
+            {content ? ` ${partial}` : partial}
+          </span>
+        )}
       </p>
       {translation && <p className="ds-msg__translation">{translation}</p>}
     </div>

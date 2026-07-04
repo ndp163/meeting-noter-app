@@ -162,6 +162,9 @@
 .ds-msg__ts:hover { color: var(--ds-accent); }
 .ds-msg__body { font-size: var(--ds-text-md); color: var(--ds-text); line-height: 1.62; white-space: pre-wrap; }
 .ds-msg__body--pending { color: var(--ds-text-2); font-style: italic; }
+/* Interim ASR tail appended inside a committed line — dimmed + italic so the
+ * not-yet-final words are visually distinct from the locked-in text. */
+.ds-msg__interim { color: var(--ds-text-3); font-style: italic; }
 .ds-msg__translation { font-size: var(--ds-text-md); color: var(--ds-text-2); line-height: 1.62; white-space: pre-wrap; margin-top: 5px; padding-left: 9px; border-left: 2px solid var(--ds-accent-soft, var(--ds-border-2)); font-style: italic; }
 
 /* ---------- PillToggle ---------- */
