@@ -139,21 +139,42 @@ export const MainContent = ({
                   // hides translation.
                   const showTranslated =
                     transcriptView === "translated" && message.translation;
-                  const content = showTranslated
-                    ? message.translation!
-                    : message.content;
                   const translation =
                     transcriptView === "both" ? message.translation : undefined;
+                  const inProgress =
+                    isCapturing && message.sentenceFinal === false;
+
+                  // For the original transcript, split the committed (finalized)
+                  // text from the still-interim tail so partial vs result is
+                  // visible. Translation arrives whole, so dim it as a unit.
+                  let content = showTranslated
+                    ? message.translation!
+                    : message.content;
+                  let partial: string | undefined;
+                  if (!showTranslated && inProgress) {
+                    const full = message.content;
+                    const committed = message.committedContent ?? "";
+                    if (committed && full.startsWith(committed)) {
+                      content = committed;
+                      partial =
+                        full.slice(committed.length).replace(/^\s+/, "") ||
+                        undefined;
+                    } else if (!committed) {
+                      content = "";
+                      partial = full;
+                    }
+                  }
                   return (
                     <div key={message.id} data-msg-id={message.id}>
                       <Message
                         label={message.label}
                         timestamp={message.timestamp}
                         content={content}
+                        partial={partial}
                         translation={translation}
                         isUser={message.source === "mic"}
                         active={message.id === activeId}
-                        pending={isCapturing && message.sentenceFinal === false}
+                        pending={Boolean(showTranslated && inProgress)}
                         onSeek={
                           audioPath && message.audioOffset !== undefined
                             ? () => playerRef.current?.seek(message.audioOffset!)

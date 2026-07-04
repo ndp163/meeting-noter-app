@@ -1,3 +1,4 @@
+mod caption;
 mod detection;
 mod diarization;
 mod mlx;
@@ -7,6 +8,8 @@ mod summary;
 mod transcription;
 mod translate;
 mod meetings;
+
+pub use caption::{hide_caption_window, set_caption_click_through, show_caption_window};
 
 pub use detection::{meeting_detection_status, start_recording_from_alert, dismiss_alert};
 

@@ -1,10 +1,16 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window and the always-on-top meeting alert overlay",
-  "windows": ["main", "alert"],
+  "description": "Capability for the main window and the always-on-top meeting alert + caption overlays",
+  "windows": ["main", "alert", "caption"],
   "permissions": [
     "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-size",
+    "core:window:allow-set-position",
+    "core:window:allow-current-monitor",
+    "core:window:allow-scale-factor",
+    "core:window:allow-inner-size",
     "opener:default",
     "notification:default",
     "updater:default",

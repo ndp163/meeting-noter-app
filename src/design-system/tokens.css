@@ -33,6 +33,14 @@
   --ds-rec-soft:    #f1ddd4;
   --ds-ok:          #6f7a4d;  /* olive */
 
+  /* live-caption overlay — dark translucent card that reads over any video,
+   * so these stay theme-independent (not remapped by ds-theme-modern). */
+  --ds-caption-bg:      rgba(18, 15, 12, .72);
+  --ds-caption-text:    #f7f2e8;  /* primary caption ink (final text) */
+  --ds-caption-text-2:  #c7bdae;  /* dimmed (partial / low-confidence) */
+  --ds-caption-mic:     #f0a869;  /* "You" — warm amber */
+  --ds-caption-speaker: #8fc7e8;  /* others — cool blue */
+
   /* radius */
   --ds-radius-xs:   8px;
   --ds-radius-sm:   10px;
