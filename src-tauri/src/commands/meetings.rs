@@ -151,6 +151,12 @@ pub async fn get_meeting_audio_path(meeting_id: String) -> Result<String, String
         return Err(format!("Audio file not found for meeting {}", meeting_id));
     }
 
+    // Salvage recordings cut off mid-write (unfinalized header) so playback
+    // still works after a crash.
+    if let Err(e) = paths::repair_wav_header(&audio_path) {
+        tracing::warn!(path = %audio_path.display(), "WAV header check failed: {e}");
+    }
+
     audio_path
         .to_str()
         .map(|s| s.to_string())

@@ -10,7 +10,7 @@
 
 use crate::bridges::FluidAudio;
 use crate::paths;
-use crate::types::{DiarizedSegment, Meeting};
+use crate::types::{DiarizedSegment, DiarizedWord, Meeting};
 use serde::{Deserialize, Serialize};
 use tauri::{command, AppHandle, Emitter};
 
@@ -21,6 +21,8 @@ struct RawSegment {
     start: f32,
     end: f32,
     text: String,
+    #[serde(default)]
+    words: Vec<DiarizedWord>,
 }
 
 /// Progress event payload for `diarization://progress`, fraction 0.0–1.0 across
@@ -55,6 +57,16 @@ pub async fn diarize_meeting(
     let mic_wav = dir.join("mic.wav");
     let audio_wav = dir.join("audio.wav");
 
+    // A recording cut off mid-write (app killed / crashed) leaves WAV headers
+    // unfinalized, which CoreAudio rejects outright — salvage them first.
+    for wav in [&speaker_wav, &mic_wav, &audio_wav] {
+        if wav.exists() {
+            if let Err(e) = paths::repair_wav_header(wav) {
+                tracing::warn!(path = %wav.display(), "WAV header check failed: {e}");
+            }
+        }
+    }
+
     // Offline ASR must use the same language model the meeting was recorded with.
     let language = meeting_language(&meeting_id);
     // Expected number of remote speakers; <= 0 lets VBx cluster automatically.
@@ -63,26 +75,35 @@ pub async fn diarize_meeting(
     let fluid = FluidAudio::new();
     let mut segments: Vec<DiarizedSegment> = Vec::new();
 
-    if speaker_wav.exists() {
-        tracing::info!("Diarizing per-source tracks for meeting {}", meeting_id);
-        // Two tracks: map remote progress to [0, 0.5] and mic to [0.5, 1].
-        let has_mic = mic_wav.exists();
-        let scale = if has_mic { 0.5 } else { 1.0 };
-        let remote = run(
-            &fluid,
-            &speaker_wav,
-            remote_speakers,
-            &language,
-            progress_emitter(&app, &meeting_id, 0.0, scale),
-        )
-        .await?;
-        segments.extend(remote.into_iter().map(|r| DiarizedSegment {
-            speaker_id: format!("remote-{}", r.speaker),
-            label: format!("Speaker {}", r.speaker + 1),
-            start: r.start,
-            end: r.end,
-            text: r.text,
-        }));
+    // A track file with no samples beyond the 44-byte header (e.g. nothing
+    // ever played on the speakers, or the mic was disabled) must be treated
+    // as absent — CoreAudio errors out on it and there is nothing to diarize.
+    let has_remote = has_samples(&speaker_wav);
+    let has_mic = has_samples(&mic_wav);
+
+    if has_remote || has_mic {
+        tracing::info!(has_remote, has_mic, "Diarizing per-source tracks for meeting {}", meeting_id);
+        // Split the progress window across however many tracks will run.
+        let scale = if has_remote && has_mic { 0.5 } else { 1.0 };
+
+        if has_remote {
+            let remote = run(
+                &fluid,
+                &speaker_wav,
+                remote_speakers,
+                &language,
+                progress_emitter(&app, &meeting_id, 0.0, scale),
+            )
+            .await?;
+            segments.extend(remote.into_iter().map(|r| DiarizedSegment {
+                speaker_id: format!("remote-{}", r.speaker),
+                label: format!("Speaker {}", r.speaker + 1),
+                start: r.start,
+                end: r.end,
+                text: r.text,
+                words: r.words,
+            }));
+        }
 
         if has_mic {
             // The mic track is a single known speaker: pin the cluster count to
@@ -93,7 +114,7 @@ pub async fn diarize_meeting(
                 &mic_wav,
                 1,
                 &language,
-                progress_emitter(&app, &meeting_id, 0.5, 0.5),
+                progress_emitter(&app, &meeting_id, 1.0 - scale, scale),
             )
             .await?;
             segments.extend(mic.into_iter().map(|r| DiarizedSegment {
@@ -102,9 +123,10 @@ pub async fn diarize_meeting(
                 start: r.start,
                 end: r.end,
                 text: r.text,
+                words: r.words,
             }));
         }
-    } else if audio_wav.exists() {
+    } else if has_samples(&audio_wav) {
         tracing::info!("No side tracks; diarizing mixed audio for meeting {}", meeting_id);
         let mixed = run(
             &fluid,
@@ -120,14 +142,22 @@ pub async fn diarize_meeting(
             start: r.start,
             end: r.end,
             text: r.text,
+            words: r.words,
         }));
     } else {
-        return Err(format!("No audio found for meeting {}", meeting_id));
+        return Err("This meeting has no captured audio to identify speakers in.".to_string());
     }
 
     segments.sort_by(|a, b| a.start.partial_cmp(&b.start).unwrap_or(std::cmp::Ordering::Equal));
     tracing::info!("Diarization produced {} segments", segments.len());
     Ok(segments)
+}
+
+/// Whether a WAV file exists and holds any samples beyond the 44-byte header.
+/// A header-only track (source never produced audio) is useless to CoreAudio
+/// and must be treated as missing.
+fn has_samples(path: &std::path::Path) -> bool {
+    std::fs::metadata(path).map(|m| m.len() > 44).unwrap_or(false)
 }
 
 /// Build a progress closure that maps one track's local fraction (0–1) into the

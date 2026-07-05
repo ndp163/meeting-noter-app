@@ -18,6 +18,16 @@ export interface DiarizedSegment {
   start: number;
   end: number;
   text: string;
+  /** Per-word time spans for word-level seek. Absent on meetings diarized
+   *  before words were recorded. */
+  words?: DiarizedWord[];
+}
+
+/** One word with its exact time span inside a diarized segment. */
+export interface DiarizedWord {
+  text: string;
+  start: number;
+  end: number;
 }
 
 /** ASR language a meeting is transcribed in. */
