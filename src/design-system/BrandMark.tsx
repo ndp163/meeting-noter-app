@@ -11,7 +11,7 @@ interface BrandMarkProps {
  * (`src-tauri/icons/icon.png`); the source bitmap lives in
  * `brand-mark-image.ts`. The container rounds the corners.
  */
-export const BrandMark = ({ size = 28, className }: BrandMarkProps) => (
+export const BrandMark = ({ size = 32, className }: BrandMarkProps) => (
   <img
     src={brandMarkImage}
     width={size}

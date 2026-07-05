@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pencil } from "lucide-react";
+import { Pencil, Play, RotateCcw, Users } from "lucide-react";
 import { Avatar, Button } from "@/design-system";
 import type { DiarizedSegment } from "@/types/meeting";
 
@@ -44,7 +44,12 @@ export const DiarizationView = ({
     return (
       <div className="flex flex-col gap-3 items-start">
         <p className="text-sm text-[var(--ds-rec)]">{error}</p>
-        <Button variant="ghost" pill onClick={onRun}>
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={<RotateCcw className="w-4 h-4" />}
+          onClick={onRun}
+        >
           Try again
         </Button>
       </div>
@@ -65,7 +70,12 @@ export const DiarizationView = ({
           Identify who spoke when. Transcribes the whole recording and groups it
           by speaker. You can rename each speaker afterwards.
         </p>
-        <Button variant="ghost" pill onClick={onRun}>
+        <Button
+          variant="primary"
+          size="sm"
+          icon={<Users className="w-4 h-4" />}
+          onClick={onRun}
+        >
           Identify speakers
         </Button>
       </div>
@@ -129,10 +139,12 @@ export const DiarizationView = ({
                     <button
                       onClick={() => onSeek(segment.start)}
                       title="Jump to this moment"
-                      className="ds-seg__time hover:underline"
+                      aria-label="Play from here"
+                      className="ds-seg__time inline-flex items-center gap-1 hover:underline"
                       style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
                     >
-                      ▸ play
+                      <Play size={11} fill="currentColor" />
+                      play
                     </button>
                   </>
                 )}

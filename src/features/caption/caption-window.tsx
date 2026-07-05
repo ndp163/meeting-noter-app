@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   getCurrentWindow,
   currentMonitor,
+  primaryMonitor,
   LogicalSize,
   LogicalPosition,
 } from "@tauri-apps/api/window";
@@ -149,14 +150,39 @@ export const CaptionWindow = () => {
   const scale = useRef(1);
   // Logical bottom-centre point the card is pinned to; null until first layout.
   const anchor = useRef<{ centerX: number; bottom: number } | null>(null);
-  // True while we're programmatically resizing/repositioning, so the resulting
-  // move events don't get mistaken for a user drag.
-  const busy = useRef(false);
+  // Logical bounds of the monitor, so we can clamp the card on-screen and never
+  // strand it where it can't recover.
+  const bounds = useRef<{
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+  } | null>(null);
+  // Physical position where our last programmatic setPosition parked the window.
+  // A resize also nudges the window (native bottom-left anchor), so several
+  // onMoved events fire per update; we debounce and compare the *settled*
+  // position to this — only a real user drag ends up somewhere else.
+  const expected = useRef<{ x: number; y: number } | null>(null);
   useLayoutEffect(() => {
     const el = barRef.current;
     if (!el) return;
     const win = getCurrentWindow();
     let unmoved: (() => void) | null = null;
+    let settleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // Adopt a monitor's scale + logical bounds. Called on first layout and again
+    // whenever a drag lands the window on a (possibly different) screen.
+    type Monitor = Awaited<ReturnType<typeof currentMonitor>>;
+    const adopt = (mon: NonNullable<Monitor>) => {
+      const s = mon.scaleFactor;
+      scale.current = s;
+      bounds.current = {
+        minX: mon.position.x / s,
+        minY: mon.position.y / s,
+        maxX: mon.position.x / s + mon.size.width / s,
+        maxY: mon.position.y / s + mon.size.height / s,
+      };
+    };
 
     const resize = async () => {
       const rect = el.getBoundingClientRect();
@@ -169,36 +195,68 @@ export const CaptionWindow = () => {
         return;
       }
       lastSize.current = { w, h };
-      busy.current = true;
       await win.setSize(new LogicalSize(w, h));
 
-      // Seed the anchor at the monitor's bottom-centre on first layout.
+      // Seed the anchor at the monitor's bottom-centre on first layout. When the
+      // window is off-screen, currentMonitor() is null — fall back to the
+      // primary monitor so it can always recover to a visible spot.
       if (!anchor.current) {
-        const mon = await currentMonitor();
+        const mon = (await currentMonitor()) ?? (await primaryMonitor());
         if (mon) {
-          scale.current = mon.scaleFactor;
-          const s = mon.scaleFactor;
+          adopt(mon);
+          const b = bounds.current!;
           anchor.current = {
-            centerX: mon.position.x / s + mon.size.width / s / 2,
-            bottom: mon.position.y / s + mon.size.height / s - EDGE_MARGIN,
+            centerX: b.minX + (b.maxX - b.minX) / 2,
+            bottom: b.maxY - EDGE_MARGIN,
           };
         }
       }
       if (anchor.current) {
-        const x = anchor.current.centerX - w / 2;
-        const y = anchor.current.bottom - h;
+        const s = scale.current;
+        let x = anchor.current.centerX - w / 2;
+        let y = anchor.current.bottom - h;
+        // Clamp fully on-screen so it can never strand off the visible area.
+        const b = bounds.current;
+        if (b) {
+          x = Math.min(Math.max(x, b.minX), b.maxX - w);
+          y = Math.min(Math.max(y, b.minY), b.maxY - h);
+        }
+        // Record where we're about to land (physical px) so the resulting
+        // onMoved isn't mistaken for a user drag.
+        expected.current = { x: Math.round(x * s), y: Math.round(y * s) };
         await win.setPosition(new LogicalPosition(x, y));
       }
-      busy.current = false;
     };
 
     // When the user drags the window, re-derive the anchor from its new spot so
     // subsequent resizes grow around there instead of the original centre.
+    // Debounce: our own resize+reposition emits a burst of moves, so wait for
+    // things to settle, then treat it as a drag only if the final position
+    // isn't where we last parked it (see `expected`).
     void win.onMoved(({ payload }) => {
-      if (busy.current) return;
-      const s = scale.current;
-      const { w, h } = lastSize.current;
-      anchor.current = { centerX: payload.x / s + w / 2, bottom: payload.y / s + h };
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => {
+        const e = expected.current;
+        if (
+          e &&
+          Math.abs(payload.x - e.x) <= 2 &&
+          Math.abs(payload.y - e.y) <= 2
+        ) {
+          return; // settled at our programmatic spot — not a user drag
+        }
+        // Real drag: it may have crossed to another screen, so re-adopt that
+        // monitor's scale + bounds before deriving the anchor, else the next
+        // resize clamps the card back onto the original screen.
+        void currentMonitor().then((mon) => {
+          if (mon) adopt(mon);
+          const s = scale.current;
+          const { w, h } = lastSize.current;
+          anchor.current = {
+            centerX: payload.x / s + w / 2,
+            bottom: payload.y / s + h,
+          };
+        });
+      }, 120);
     }).then((un) => {
       unmoved = un;
     });
@@ -209,6 +267,7 @@ export const CaptionWindow = () => {
     return () => {
       ro.disconnect();
       unmoved?.();
+      if (settleTimer) clearTimeout(settleTimer);
     };
   }, []);
 

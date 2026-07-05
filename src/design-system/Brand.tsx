@@ -12,12 +12,30 @@ export interface BrandProps {
   className?: string;
 }
 
-/** App brand lockup — gradient glyph + wordmark. */
-export const Brand = ({ name = "Meeting Noter", glyphOnly, logo, className }: BrandProps) => (
-  <span className={clsx("ds-brand", className)}>
-    <span className={clsx("ds-brand__logo", !logo && "ds-brand__logo--mark")}>
-      {logo ?? <BrandMark size={28} />}
+/** App brand lockup — glyph + two-tone wordmark (last word accented). */
+export const Brand = ({
+  name = "Meeting Noter",
+  glyphOnly,
+  logo,
+  className,
+}: BrandProps) => {
+  const words = name.trim().split(/\s+/);
+  const last = words.pop();
+  return (
+    <span
+      className={clsx("ds-brand", className)}
+      aria-label={glyphOnly ? name : undefined}
+      role={glyphOnly ? "img" : undefined}
+    >
+      <span className={clsx("ds-brand__logo", !logo && "ds-brand__logo--mark")}>
+        {logo ?? <BrandMark size={40} />}
+      </span>
+      {!glyphOnly && (
+        <span className="ds-brand__name">
+          {words.length > 0 && <>{words.join(" ")} </>}
+          <span className="ds-brand__name-accent">{last}</span>
+        </span>
+      )}
     </span>
-    {!glyphOnly && <span className="ds-brand__name">{name}</span>}
-  </span>
-);
+  );
+};

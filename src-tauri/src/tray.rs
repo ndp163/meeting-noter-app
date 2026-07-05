@@ -42,9 +42,12 @@ impl TrayState {
         if active {
             let _ = self.toggle.set_text("Stop Recording");
             let _ = self.icon.set_icon(Some(self.recording_icon.clone()));
+            // Red must show as-is; template mode would flatten it to the bar tint.
+            let _ = self.icon.set_icon_as_template(false);
         } else {
             let _ = self.toggle.set_text("Start Recording");
             let _ = self.icon.set_icon(Some(self.idle_icon.clone()));
+            let _ = self.icon.set_icon_as_template(true);
         }
     }
 
@@ -72,43 +75,21 @@ fn show_main(app: &AppHandle) -> Option<tauri::WebviewWindow> {
     Some(w)
 }
 
-/// Composite a red "recording" dot onto the base app icon, bottom-right, so the
-/// menu-bar icon visibly changes while a session is running. Done in-process
-/// from the base icon's RGBA — no extra asset, no image-decoding dependency.
-fn make_recording_icon(base: &Image) -> Image<'static> {
-    let (w, h) = (base.width(), base.height());
-    let mut rgba = base.rgba().to_vec();
+/// Apple system red (#FF3B30) — the recording-state glyph tint.
+const REC_RGB: [u8; 3] = [255, 59, 48];
 
-    // Dot sized/placed relative to the icon so it scales with any base size.
-    let r = (w as f32 * 0.26).max(4.0);
-    let margin = w as f32 * 0.06;
-    let cx = w as f32 - r - margin;
-    let cy = h as f32 - r - margin;
-    // Apple system red (#FF3B30).
-    let dot = [255u8, 59, 48];
-
-    for y in 0..h {
-        for x in 0..w {
-            let dx = x as f32 + 0.5 - cx;
-            let dy = y as f32 + 0.5 - cy;
-            // Antialiased coverage at the circle edge (1 px feather).
-            let coverage = (r - (dx * dx + dy * dy).sqrt() + 0.5).clamp(0.0, 1.0);
-            if coverage <= 0.0 {
-                continue;
-            }
-            let i = ((y * w + x) * 4) as usize;
-            for c in 0..3 {
-                let src = dot[c] as f32;
-                let dst = rgba[i + c] as f32;
-                rgba[i + c] = (src * coverage + dst * (1.0 - coverage)).round() as u8;
-            }
-            // Opaque where the dot covers fully; keep existing alpha otherwise.
-            let alpha = rgba[i + 3] as f32;
-            rgba[i + 3] = (255.0 * coverage + alpha * (1.0 - coverage)).round() as u8;
+/// Recolour a glyph mask's opaque pixels (makes the red recording variant).
+fn tint(mask: &Image, rgb: [u8; 3]) -> Image<'static> {
+    let (w, h) = (mask.width(), mask.height());
+    let mut px = mask.rgba().to_vec();
+    for i in (0..px.len()).step_by(4) {
+        if px[i + 3] > 0 {
+            px[i] = rgb[0];
+            px[i + 1] = rgb[1];
+            px[i + 2] = rgb[2];
         }
     }
-
-    Image::new_owned(rgba, w, h)
+    Image::new_owned(px, w, h)
 }
 
 /// Build the menu-bar tray icon. The menu surfaces recording state and the
@@ -147,13 +128,18 @@ pub fn setup(app: &App) -> tauri::Result<()> {
         ],
     )?;
 
-    // Own the base icon ('static) so it can live in managed state.
-    let base = app.default_window_icon().unwrap();
-    let idle_icon = Image::new_owned(base.rgba().to_vec(), base.width(), base.height());
-    let recording_icon = make_recording_icon(&idle_icon);
+    // A bold monochrome cassette glyph — the macOS-standard menu-bar look.
+    // Borderless, baked at exactly 36×36 (tray-icon renders at a fixed 18pt →
+    // 36px on Retina, so this maps 1:1 with zero runtime resampling); the red
+    // variant marks an active recording. Template mode auto-inverts it for
+    // light/dark bars.
+    let glyph = tauri::include_image!("icons/tray-glyph.png");
+    let idle_icon = Image::new_owned(glyph.rgba().to_vec(), glyph.width(), glyph.height());
+    let recording_icon = tint(&idle_icon, REC_RGB);
 
     let icon = TrayIconBuilder::new()
         .icon(idle_icon.clone())
+        .icon_as_template(true)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {

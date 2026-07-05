@@ -134,7 +134,7 @@ export const Sidebar = ({
       {/* Header */}
       <div
         className={cn(
-          "flex items-center h-[78px] py-[23px]",
+          "flex items-center h-[78px] py-[19px]",
           isSidebarCollapsed ? "justify-center" : "justify-between",
         )}
       >
@@ -148,7 +148,13 @@ export const Sidebar = ({
             />
           )}
           <IconButton
-            icon={isSidebarCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+            icon={
+              isSidebarCollapsed ? (
+                <ChevronRight className="w-5 h-5" />
+              ) : (
+                <ChevronLeft className="w-5 h-5" />
+              )
+            }
             label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             onClick={toggleSidebar}
           />
@@ -161,10 +167,17 @@ export const Sidebar = ({
           onClick={handleToggleCapture}
           disabled={isCaptureBusy}
           title={isCapturing ? "Stop Capture" : "Start Capture"}
-          className={cn("ds-capture shrink-0", isCapturing && "ds-capture--active")}
+          className={cn(
+            "ds-capture shrink-0",
+            isCapturing && "ds-capture--active",
+          )}
           style={{ height: 52 }}
         >
-          {isCapturing ? <Square className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+          {isCapturing ? (
+            <Square className="w-6 h-6" />
+          ) : (
+            <Mic className="w-6 h-6" />
+          )}
         </button>
       ) : (
         <CaptureButton
@@ -211,7 +224,8 @@ export const Sidebar = ({
               className="flex items-center gap-1.5 self-start text-xs text-[var(--ds-accent)] hover:underline px-1 pt-2"
             >
               <Download className="w-3.5 h-3.5" />
-              {languageInfo(captureLanguage).label} model not installed — download
+              {languageInfo(captureLanguage).label} model not installed —
+              download
             </button>
           )}
         </div>
@@ -358,16 +372,24 @@ const MeetingCard = ({
           <div
             className="animate-pulse bg-[var(--ds-rec)]"
             style={{
-              width: 8, height: 8, minWidth: 8, minHeight: 8,
-              flex: "0 0 auto", borderRadius: "50%",
+              width: 8,
+              height: 8,
+              minWidth: 8,
+              minHeight: 8,
+              flex: "0 0 auto",
+              borderRadius: "50%",
             }}
           />
         ) : (
           <div
             className="bg-[var(--ds-text)]"
             style={{
-              width: 8, height: 8, minWidth: 8, minHeight: 8,
-              flex: "0 0 auto", borderRadius: "50%",
+              width: 8,
+              height: 8,
+              minWidth: 8,
+              minHeight: 8,
+              flex: "0 0 auto",
+              borderRadius: "50%",
             }}
           />
         )}
@@ -404,7 +426,10 @@ const MeetingCard = ({
               else if (e.key === "Escape") cancelEditing();
             }}
             className="text-base font-medium bg-transparent border-b outline-none w-full"
-            style={{ borderColor: "var(--ds-border-2)", color: "var(--ds-text)" }}
+            style={{
+              borderColor: "var(--ds-border-2)",
+              color: "var(--ds-text)",
+            }}
           />
         ) : isTitling ? (
           <div className="flex items-center gap-1.5 min-w-0 text-[var(--ds-text-2)]">
