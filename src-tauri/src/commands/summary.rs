@@ -26,6 +26,18 @@ Output GitHub-flavored markdown with these sections: \
 ## Action Items (bullet list as `- [ ] owner — task`, omit if none). \
 Be concise and do not invent details. The transcript follows on stdin.";
 
+/// Extra guidance when the input is the diarized transcript: speaker names are
+/// trustworthy, so the model should attribute content to them by name.
+const SPEAKER_NOTE: &str = " Each transcript line is prefixed with the \
+speaker's name. The names are accurate — use them when attributing key \
+points, decisions, and action-item owners.";
+
+/// Extra guidance for the raw transcript: the remote side is one unlabelled
+/// "Speaker" stream, so the model must not pretend to know who said what.
+const RAW_NOTE: &str = " Lines prefixed \"You\" are the user; lines prefixed \
+\"Speaker\" are remote participants and may be several different people — do \
+not attribute them to specific individuals.";
+
 const TITLE_INSTRUCTIONS: &str = "Generate a short, descriptive title for this \
 meeting transcript. Maximum 6 words. Output the title text only — no quotes, \
 no markdown, no trailing punctuation, no commentary. The transcript follows on stdin.";
@@ -35,7 +47,8 @@ fn translate_instructions(language: &str) -> String {
     format!(
         "Translate the following meeting summary into {language}. Preserve the \
 markdown structure and heading levels exactly; translate the heading text too. \
-Keep checkbox syntax `- [ ]` intact. Output only the translated markdown with \
+Keep checkbox syntax `- [ ]` intact. Keep people's names unchanged — do not \
+translate or transliterate them. Output only the translated markdown with \
 no extra commentary. The summary follows on stdin."
     )
 }
@@ -121,7 +134,10 @@ pub async fn claude_available() -> Result<bool, String> {
 
 #[command]
 #[tracing::instrument]
-pub async fn summarize_meeting(meeting_id: String) -> Result<String, String> {
+pub async fn summarize_meeting(
+    meeting_id: String,
+    source: Option<String>,
+) -> Result<String, String> {
     let data_path = paths::get_meeting_data_path(&meeting_id);
     if !data_path.exists() {
         return Err(format!("Meeting {} not found", meeting_id));
@@ -132,13 +148,33 @@ pub async fn summarize_meeting(meeting_id: String) -> Result<String, String> {
     let meeting: Meeting = serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse meeting data: {}", e))?;
 
-    let transcript = build_transcript(&meeting);
+    // `speakers` summarizes the diarized, speaker-labelled transcript (with any
+    // user renames); `transcript` uses the raw live transcript. Unspecified
+    // prefers speakers when a diarization result exists.
+    let diarized = build_diarized_transcript(&meeting);
+    let (transcript, use_speakers) = match source.as_deref() {
+        Some("speakers") => (
+            diarized.ok_or("Run Identify speakers first to summarize by speaker.")?,
+            true,
+        ),
+        Some(_) => (build_transcript(&meeting), false),
+        None => match diarized {
+            Some(d) => (d, true),
+            None => (build_transcript(&meeting), false),
+        },
+    };
     if transcript.trim().is_empty() {
         return Err("This meeting has no transcript to summarize.".to_string());
     }
 
-    tracing::info!("Summarizing meeting {}", meeting_id);
-    let summary = run_inference(&meeting_id, INSTRUCTIONS, &transcript, 2048).await?;
+    let instructions = if use_speakers {
+        format!("{INSTRUCTIONS}{SPEAKER_NOTE}")
+    } else {
+        format!("{INSTRUCTIONS}{RAW_NOTE}")
+    };
+
+    tracing::info!(use_speakers, "Summarizing meeting {}", meeting_id);
+    let summary = run_inference(&meeting_id, &instructions, &transcript, 2048).await?;
     if summary.is_empty() {
         return Err("The summary came back empty.".to_string());
     }
@@ -288,4 +324,36 @@ fn build_transcript(meeting: &Meeting) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Flatten the diarization result into name-labelled lines, in time order,
+/// merging consecutive segments of the same speaker into one line. Labels
+/// carry any user renames ("You", "Speaker 2", "Alice"…). None when the
+/// meeting has no (non-empty) diarization result.
+fn build_diarized_transcript(meeting: &Meeting) -> Option<String> {
+    let segments = meeting.diarization.as_ref()?;
+    let mut sorted: Vec<_> = segments
+        .iter()
+        .filter(|s| !s.text.trim().is_empty())
+        .collect();
+    if sorted.is_empty() {
+        return None;
+    }
+    sorted.sort_by(|a, b| a.start.partial_cmp(&b.start).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut lines: Vec<String> = Vec::new();
+    let mut last_label: Option<&str> = None;
+    for seg in sorted {
+        let text = seg.text.trim();
+        if last_label == Some(seg.label.as_str()) {
+            if let Some(line) = lines.last_mut() {
+                line.push(' ');
+                line.push_str(text);
+            }
+        } else {
+            lines.push(format!("{}: {}", seg.label, text));
+            last_label = Some(seg.label.as_str());
+        }
+    }
+    Some(lines.join("\n"))
 }

@@ -3,11 +3,14 @@ import { Loader2, Mic, MessageSquareText } from "lucide-react";
 import { Tabs, StatusDot } from "@/design-system";
 import { useBoundStore } from "@/store";
 import { Message } from "@/features/home/message";
-import { AudioPlayer, type AudioPlayerHandle } from "@/features/home/audio-player";
+import {
+  AudioPlayer,
+  type AudioPlayerHandle,
+} from "@/features/home/audio-player";
 import { DiarizationView } from "@/features/home/diarization-view";
 import { SummaryView } from "@/features/home/summary-view";
 import type { TranscriptMessage, DiarizedSegment } from "@/types/meeting";
-import type { SummaryProvider } from "@/services/summary";
+import type { SummaryProvider, SummarySource } from "@/services/summary";
 
 export type MainTab = "transcript" | "summary" | "diarization";
 
@@ -23,12 +26,15 @@ interface MainContentProps {
   messagesEndRef: Ref<HTMLDivElement>;
   diarization: DiarizedSegment[] | undefined;
   isDiarizing: boolean;
+  diarizationProgress: number;
   diarizationError?: string;
   canDiarize: boolean;
-  onRunDiarization: () => void;
+  onRunDiarization: (numSpeakers?: number) => void;
   onRenameSpeaker: (speakerId: string, label: string) => void;
   summary: string | undefined;
   summaryTranslation: { lang: string; text: string } | undefined;
+  /** Whether a diarization result exists (enables the "By speaker" source). */
+  hasDiarization: boolean;
   translateTarget: string;
   isSummarizing: boolean;
   isTranslating: boolean;
@@ -37,7 +43,7 @@ interface MainContentProps {
   canSummarize: boolean;
   summaryReady: boolean | undefined;
   summaryProvider: SummaryProvider;
-  onRunSummary: () => void;
+  onRunSummary: (source?: SummarySource) => void;
   onTranslateSummary: () => void;
 }
 
@@ -53,12 +59,14 @@ export const MainContent = ({
   messagesEndRef,
   diarization,
   isDiarizing,
+  diarizationProgress,
   diarizationError,
   canDiarize,
   onRunDiarization,
   onRenameSpeaker,
   summary,
   summaryTranslation,
+  hasDiarization,
   translateTarget,
   isSummarizing,
   isTranslating,
@@ -86,7 +94,9 @@ export const MainContent = ({
   // Keep the playing line in view as audio advances.
   useEffect(() => {
     if (!activeId) return;
-    const el = document.querySelector(`[data-msg-id="${CSS.escape(activeId)}"]`);
+    const el = document.querySelector(
+      `[data-msg-id="${CSS.escape(activeId)}"]`,
+    );
     el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [activeId]);
 
@@ -119,10 +129,7 @@ export const MainContent = ({
       </div>
 
       {/* Content Area */}
-      <div
-        ref={contentAreaRef}
-        className="ds-card flex-1 p-5 overflow-y-auto"
-      >
+      <div ref={contentAreaRef} className="ds-card flex-1 p-5 overflow-y-auto">
         <div className="flex flex-col gap-5">
           {activeTab === "transcript" ? (
             messages.length > 0 ? (
@@ -177,7 +184,8 @@ export const MainContent = ({
                         pending={Boolean(showTranslated && inProgress)}
                         onSeek={
                           audioPath && message.audioOffset !== undefined
-                            ? () => playerRef.current?.seek(message.audioOffset!)
+                            ? () =>
+                                playerRef.current?.seek(message.audioOffset!)
                             : undefined
                         }
                       />
@@ -216,7 +224,10 @@ export const MainContent = ({
               <div className="flex flex-col items-center justify-center gap-4 py-16 text-center">
                 <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-[var(--ds-surface-2)]">
                   {currentMeetingId ? (
-                    <Mic className="h-7 w-7 text-[var(--ds-text-2)]" strokeWidth={2} />
+                    <Mic
+                      className="h-7 w-7 text-[var(--ds-text-2)]"
+                      strokeWidth={2}
+                    />
                   ) : (
                     <MessageSquareText
                       className="h-7 w-7 text-[var(--ds-text-2)]"
@@ -242,6 +253,7 @@ export const MainContent = ({
             <DiarizationView
               segments={diarization}
               isLoading={isDiarizing}
+              progress={diarizationProgress}
               error={diarizationError}
               canRun={canDiarize}
               onRun={onRunDiarization}
@@ -252,6 +264,7 @@ export const MainContent = ({
             <SummaryView
               summary={summary}
               summaryTranslation={summaryTranslation}
+              hasDiarization={hasDiarization}
               translateTarget={translateTarget}
               isLoading={isSummarizing}
               isTranslating={isTranslating}

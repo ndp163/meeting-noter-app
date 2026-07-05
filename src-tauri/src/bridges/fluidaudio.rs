@@ -88,8 +88,9 @@ extern "C" {
 
     fn fluid_audio_diarize_file(
         path: *const c_char,
-        diarize: bool,
+        num_speakers: i32,
         language: *const c_char,
+        progress: FluidProgressCallback,
         callback: FluidAudioCallback,
         context: *mut c_void,
     );
@@ -137,19 +138,28 @@ impl FluidAudio {
     }
 
     /// Offline pass: transcribe a whole WAV file and attribute each part to a
-    /// speaker. `diarize` clusters multiple speakers (remote track); when false
-    /// the file is treated as a single known speaker (mic track). Returns the
-    /// segments as a JSON string. Models load lazily inside the Swift bridge.
-    pub async fn diarize_file(
+    /// speaker via the offline VBx diarizer. `num_speakers > 0` pins the exact
+    /// speaker count (1 for the known mic track, or a user-supplied participant
+    /// count); `<= 0` clusters automatically. `on_progress` receives the
+    /// diarization fraction 0.0–1.0 as chunks complete. Returns the segments as
+    /// a JSON string. Models load lazily inside the Swift bridge.
+    pub async fn diarize_file<F>(
         &self,
         path: &str,
-        diarize: bool,
+        num_speakers: i32,
         language: &str,
-    ) -> Result<String, String> {
+        on_progress: F,
+    ) -> Result<String, String>
+    where
+        F: Fn(f64) + Send + 'static,
+    {
         let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
 
-        let ctx = CallbackContext::new(tx);
-        let context = Box::into_raw(Box::new(ctx)) as *mut c_void;
+        let ctx = Box::new(DiarizeContext {
+            on_progress: Box::new(on_progress),
+            done: Some(tx),
+        });
+        let context = Box::into_raw(ctx) as *mut c_void;
 
         let c_path = CString::new(path).map_err(|e| format!("Invalid path: {}", e))?;
         let c_lang = CString::new(language).map_err(|e| format!("Invalid language: {}", e))?;
@@ -157,9 +167,10 @@ impl FluidAudio {
         unsafe {
             fluid_audio_diarize_file(
                 c_path.as_ptr(),
-                diarize,
+                num_speakers,
                 c_lang.as_ptr(),
-                string_result_callback,
+                diarize_progress_callback,
+                diarize_done_callback,
                 context,
             );
         }
@@ -259,6 +270,53 @@ impl FluidAudio {
 struct PrefetchContext {
     on_progress: Box<dyn Fn(f64) + Send>,
     done: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+}
+
+/// Context for `diarize_file`: progress ticks borrow it, the completion
+/// callback (which delivers the JSON result) owns and frees it.
+struct DiarizeContext {
+    on_progress: Box<dyn Fn(f64) + Send>,
+    done: Option<tokio::sync::oneshot::Sender<Result<String, String>>>,
+}
+
+/// Progress tick for diarization — borrows the context.
+unsafe extern "C" fn diarize_progress_callback(fraction: f64, context: *mut c_void) {
+    if context.is_null() {
+        return;
+    }
+    let ctx = &*(context as *const DiarizeContext);
+    (ctx.on_progress)(fraction);
+}
+
+/// Terminal diarization callback — takes ownership of the context, resolves the
+/// channel with the JSON result or error, and drops the box (called exactly
+/// once, after the last progress tick).
+unsafe extern "C" fn diarize_done_callback(
+    text_ptr: *const c_char,
+    error_ptr: *const c_char,
+    context: *mut c_void,
+) {
+    if context.is_null() {
+        tracing::error!("Diarize done callback: context is null");
+        return;
+    }
+    let mut ctx = Box::from_raw(context as *mut DiarizeContext);
+
+    let result = if !error_ptr.is_null() {
+        let error_str = CStr::from_ptr(error_ptr).to_string_lossy().to_string();
+        tracing::error!(error = %error_str, "FluidAudio diarization error");
+        Err(error_str)
+    } else if !text_ptr.is_null() {
+        Ok(CStr::from_ptr(text_ptr).to_string_lossy().to_string())
+    } else {
+        Err("Invalid callback: both pointers null".to_string())
+    };
+
+    if let Some(tx) = ctx.done.take() {
+        if tx.send(result).is_err() {
+            tracing::warn!("Diarize done callback: receiver dropped");
+        }
+    }
 }
 
 /// Progress tick — borrows the context (does not free it; completion does).

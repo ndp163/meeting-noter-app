@@ -5,22 +5,28 @@ import { listen } from "@tauri-apps/api/event";
  *  login); `local` = on-device MLX model (fully offline, downloaded on demand). */
 export type SummaryProvider = "claude" | "local";
 
+/** What the summary is built from: the raw live transcript, or the diarized
+ *  speaker-labelled transcript (accurate per-person attribution). */
+export type SummarySource = "transcript" | "speakers";
+
 export const summarizeMeeting = async (
-  meetingId: string
+  meetingId: string,
+  source?: SummarySource,
 ): Promise<string> => {
-  return await invoke<string>("summarize_meeting", { meetingId });
+  return await invoke<string>("summarize_meeting", {
+    meetingId,
+    source: source ?? null,
+  });
 };
 
 export const translateSummary = async (
   meetingId: string,
-  target: string
+  target: string,
 ): Promise<string> => {
   return await invoke<string>("translate_summary", { meetingId, target });
 };
 
-export const generateTitle = async (
-  meetingId: string
-): Promise<string> => {
+export const generateTitle = async (meetingId: string): Promise<string> => {
   return await invoke<string>("generate_title", { meetingId });
 };
 
@@ -52,5 +58,5 @@ export const deleteLocalModel = (): Promise<void> =>
  *  unlisten fn. */
 export const onLocalModelProgress = (handler: (fraction: number) => void) =>
   listen<{ fraction: number }>("mlx://progress", (e) =>
-    handler(e.payload.fraction)
+    handler(e.payload.fraction),
   );

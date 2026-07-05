@@ -25,15 +25,16 @@ struct DiarizedSegment: Codable {
 
 // All model managers and stream state live inside this actor. Actor isolation
 // serializes every read/write of the shared reference-typed properties
-// (asrManager/models/diarizer/vadManager) and the VAD state dict, which is what
-// prevents the over-release/use-after-free crash: previously concurrent Swift
-// Tasks (transcribe, diarize, prefetch, shutdown) mutated these from different
-// threads, racing ARC's non-atomic retain/release on the CoreML objects.
+// (asrManager/models/offlineDiarizerModels/vadManager) and the VAD state dict,
+// which is what prevents the over-release/use-after-free crash: previously
+// concurrent Swift Tasks (transcribe, diarize, prefetch, shutdown) mutated
+// these from different threads, racing ARC's non-atomic retain/release on the
+// CoreML objects.
 actor FluidAudioBridge {
     private var vadManager: VadManager?
     private var asrManager: AsrManager?
     private var models: AsrModels?
-    private var diarizer: DiarizerManager?
+    private var offlineDiarizerModels: OfflineDiarizerModels?
     // Selected per session by the requested language (see modelVersion(forLanguage:)).
     private var modelVersion: AsrModelVersion = .v2
 
@@ -135,27 +136,33 @@ actor FluidAudioBridge {
         self.asrManager = manager
     }
 
-    // Lazily download/load the diarization CoreML models on first use.
-    private func ensureDiarizerLoaded() async throws -> DiarizerManager {
-        if let diarizer = diarizer { return diarizer }
-        let models = try await DiarizerModels.downloadIfNeeded()
-        let manager = DiarizerManager()
-        manager.initialize(models: models)
-        self.diarizer = manager
-        return manager
+    // Lazily download/load the offline (VBx) diarization CoreML models on
+    // first use. The models are shared across calls; each diarizeFile builds a
+    // throwaway OfflineDiarizerManager around them because the config (e.g.
+    // numSpeakers) is fixed at manager init.
+    private func ensureOfflineDiarizerModels() async throws -> OfflineDiarizerModels {
+        if let models = offlineDiarizerModels { return models }
+        let models = try await OfflineDiarizerModels.load()
+        self.offlineDiarizerModels = models
+        return models
     }
 
     func prefetchDiarizer() async throws {
-        _ = try await ensureDiarizerLoaded()
+        _ = try await ensureOfflineDiarizerModels()
     }
 
-    /// Transcribe a whole audio file and attribute each part to a speaker.
+    /// Transcribe a whole audio file and attribute each part to a speaker,
+    /// using the offline VBx pipeline (pyannote segmentation + WeSpeaker
+    /// embeddings + PLDA + VBx clustering — ~2-3x lower DER than the legacy
+    /// chunked DiarizerManager).
     ///
-    /// `diarize == true`: cluster speakers and bucket transcribed tokens into
-    /// the speaker segment their timing falls in (used for the remote track).
-    /// `diarize == false`: single speaker, split into segments on silence gaps
-    /// (used for the known "You" mic track). Returns segments as JSON.
-    func diarizeFile(path: String, diarize: Bool, language: String?) async throws -> String {
+    /// `numSpeakers > 0` pins the exact speaker count (1 for the known "You"
+    /// mic track, or a user-supplied participant count); `<= 0` clusters
+    /// automatically. `progress` receives the diarization fraction 0.0–1.0.
+    /// Returns segments as JSON.
+    func diarizeFile(
+        path: String, numSpeakers: Int, language: String?, progress: ProgressSink
+    ) async throws -> String {
         try await ensureAsrLoaded(version: Self.modelVersion(forLanguage: language))
         guard let asrManager = asrManager else {
             throw NSError(domain: "FluidAudio", code: 1,
@@ -169,16 +176,20 @@ actor FluidAudioBridge {
         }
         let timings = asr.tokenTimings ?? []
 
-        let segments: [DiarizedSegment]
-        if diarize {
-            let diarizer = try await ensureDiarizerLoaded()
-            let result = try await runSerialized {
-                try diarizer.performCompleteDiarization(samples, sampleRate: 16000)
+        let models = try await ensureOfflineDiarizerModels()
+        var config = OfflineDiarizerConfig()
+        if numSpeakers > 0 { config.clustering.numSpeakers = numSpeakers }
+        let diarizer = OfflineDiarizerManager(config: config)
+        diarizer.initialize(models: models)
+        let result = try await runSerialized {
+            try await diarizer.process(audio: samples) { processed, total in
+                progress.report(total > 0 ? Double(processed) / Double(total) : 0)
             }
-            segments = bucketIntoSpeakerSegments(result.segments, timings: timings)
-        } else {
-            segments = splitBySilence(timings)
         }
+        progress.report(1.0)
+
+        let merged = mergeAdjacentSegments(result.segments)
+        let segments = bucketIntoSpeakerSegments(merged, timings: timings)
 
         let data = try JSONEncoder().encode(segments)
         return String(data: data, encoding: .utf8) ?? "[]"
@@ -231,11 +242,37 @@ actor FluidAudioBridge {
         vadManager = nil
         asrManager = nil
         models = nil
-        diarizer = nil
+        offlineDiarizerModels = nil
         vadStates.removeAll()
     }
 
     // MARK: - Helpers
+
+    // Merge consecutive segments of the same speaker separated by at most
+    // `maxGap` seconds of silence, so token bucketing doesn't scatter one
+    // continuous utterance across many small fragments.
+    private func mergeAdjacentSegments(
+        _ segments: [TimedSpeakerSegment], maxGap: Float = 1.0
+    ) -> [TimedSpeakerSegment] {
+        let sorted = segments.sorted { $0.startTimeSeconds < $1.startTimeSeconds }
+        var out: [TimedSpeakerSegment] = []
+        for seg in sorted {
+            if let last = out.last, last.speakerId == seg.speakerId,
+                seg.startTimeSeconds - last.endTimeSeconds <= maxGap
+            {
+                out[out.count - 1] = TimedSpeakerSegment(
+                    speakerId: last.speakerId,
+                    embedding: last.embedding,
+                    startTimeSeconds: last.startTimeSeconds,
+                    endTimeSeconds: max(last.endTimeSeconds, seg.endTimeSeconds),
+                    qualityScore: min(last.qualityScore, seg.qualityScore)
+                )
+            } else {
+                out.append(seg)
+            }
+        }
+        return out
+    }
 
     private func bucketIntoSpeakerSegments(
         _ diarSegments: [TimedSpeakerSegment],
@@ -286,38 +323,11 @@ actor FluidAudioBridge {
         return out
     }
 
-    // Group tokens into single-speaker segments, breaking on silence gaps.
-    private func splitBySilence(_ timings: [TokenTiming], gap: TimeInterval = 0.8) -> [DiarizedSegment] {
-        var out: [DiarizedSegment] = []
-        var current = ""
-        var start: TimeInterval = 0
-        var end: TimeInterval = 0
-        var lastEnd: TimeInterval = -1
-
-        for timing in timings {
-            if lastEnd >= 0 && timing.startTime - lastEnd > gap {
-                let text = cleanText(current)
-                if !text.isEmpty {
-                    out.append(DiarizedSegment(speaker: 0, start: Float(start), end: Float(end), text: text))
-                }
-                current = ""
-                start = timing.startTime
-            }
-            if current.isEmpty { start = timing.startTime }
-            current += timing.token
-            end = timing.endTime
-            lastEnd = timing.endTime
-        }
-        let text = cleanText(current)
-        if !text.isEmpty {
-            out.append(DiarizedSegment(speaker: 0, start: Float(start), end: Float(end), text: text))
-        }
-        return out
-    }
-
+    // Collapse whitespace runs and trim — token concatenation can leave
+    // repeated spaces between words.
     private func cleanText(_ s: String) -> String {
-        s.trimmingCharacters(in: .whitespaces)
-            .replacingOccurrences(of: "  ", with: " ")
+        s.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
     }
 
     // Reinterprets raw bytes as 16-bit PCM and normalizes to Float [-1, 1].
@@ -390,18 +400,21 @@ public func fluid_audio_transcribe(
 @_cdecl("fluid_audio_diarize_file")
 public func fluid_audio_diarize_file(
     path: UnsafePointer<CChar>?,
-    diarize: Bool,
+    numSpeakers: Int32,
     language: UnsafePointer<CChar>?,
+    progress: FluidProgressCallback?,
     callback: FluidAudioCallback?,
     context: UnsafeMutableRawPointer?
 ) {
     guard let path = path, let callback = callback else { return }
     let filePath = String(cString: path)
     let lang = language != nil ? String(cString: language!) : nil
+    let sink = ProgressSink(callback: progress, context: context)
 
     Task {
         do {
-            let json = try await FluidAudioBridge.shared.diarizeFile(path: filePath, diarize: diarize, language: lang)
+            let json = try await FluidAudioBridge.shared.diarizeFile(
+                path: filePath, numSpeakers: Int(numSpeakers), language: lang, progress: sink)
             let jsonStr = strdup(json)
             callback(jsonStr, nil, context)
             free(jsonStr)
@@ -444,10 +457,11 @@ func asrVersion(forLanguage language: String?) -> AsrModelVersion {
     }
 }
 
-// True only when the ASR model for `language` AND the shared diarizer are fully
-// cached on disk — i.e. that language is ready to transcribe offline. Uses
-// FluidAudio's version-aware `modelsExist` because per-version file names differ
-// (e.g. tdtJa ships Decoderv2/Jointerv2, not the generic Decoder/JointDecision).
+// True only when the ASR model for `language` AND the shared offline diarizer
+// are fully cached on disk — i.e. that language is ready to transcribe offline.
+// Uses FluidAudio's version-aware `modelsExist` because per-version file names
+// differ (e.g. tdtJa ships Decoderv2/Jointerv2, not the generic
+// Decoder/JointDecision).
 @_cdecl("fluid_audio_model_installed")
 public func fluid_audio_model_installed(language: UnsafePointer<CChar>?) -> Bool {
     let lang = language != nil ? String(cString: language!) : nil
@@ -457,8 +471,10 @@ public func fluid_audio_model_installed(language: UnsafePointer<CChar>?) -> Bool
         return false
     }
     let fm = FileManager.default
+    // Offline VBx diarizer files live in the same repo dir as the legacy
+    // diarizer (`speaker-diarization-coreml/`), just under different names.
     let diarDir = DiarizerModels.defaultModelsDirectory()
-    for name in DiarizerModels.requiredModelNames {
+    for name in ModelNames.OfflineDiarizer.requiredModels {
         if !fm.fileExists(atPath: diarDir.appendingPathComponent(name).path) {
             return false
         }
@@ -470,7 +486,7 @@ public func fluid_audio_model_installed(language: UnsafePointer<CChar>?) -> Bool
 // @Sendable download progress closures can capture it. FFI pointers carry no
 // Swift concurrency guarantees; the Rust caller owns their lifetime, so the
 // unchecked conformance is sound here.
-private struct ProgressSink: @unchecked Sendable {
+struct ProgressSink: @unchecked Sendable {
     let callback: FluidProgressCallback?
     let context: UnsafeMutableRawPointer?
     func report(_ fraction: Double) { callback?(fraction, context) }
@@ -719,6 +735,11 @@ public func fluid_audio_download_language(
         try await downloadLanguageFromS3(
             lang: lang, baseURL: base, manifestURL: manifest,
             report: { sink.report($0) })
+        // The offline VBx diarizer files may not be in the bucket yet; fall
+        // back to FluidAudio's own HuggingFace download for any missing files
+        // so `fluid_audio_model_installed` holds right after setup. No-op
+        // (local load only) once the files exist.
+        _ = try await OfflineDiarizerModels.load()
     }
     DownloadRegistry.shared.set(lang, work)
     Task {

@@ -1,14 +1,16 @@
 import { useState } from "react";
 import { Pencil, Play, RotateCcw, Users } from "lucide-react";
-import { Avatar, Button } from "@/design-system";
+import { Avatar, Button, ProgressBar, Stepper } from "@/design-system";
 import type { DiarizedSegment } from "@/types/meeting";
 
 interface DiarizationViewProps {
   segments: DiarizedSegment[] | undefined;
   isLoading: boolean;
+  /** Fraction 0–1 while running; 0 means the transcription phase (no ticks). */
+  progress: number;
   error?: string;
   canRun: boolean;
-  onRun: () => void;
+  onRun: (numSpeakers?: number) => void;
   onRenameSpeaker: (speakerId: string, label: string) => void;
   onSeek: (seconds: number) => void;
 }
@@ -23,6 +25,7 @@ const formatTime = (seconds: number) => {
 export const DiarizationView = ({
   segments,
   isLoading,
+  progress,
   error,
   canRun,
   onRun,
@@ -31,11 +34,23 @@ export const DiarizationView = ({
 }: DiarizationViewProps) => {
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
+  // Expected number of remote speakers ("you" is tracked separately from the
+  // mic). null = automatic clustering.
+  const [speakerCount, setSpeakerCount] = useState<number | null>(null);
+
+  const run = () => onRun(speakerCount ?? undefined);
 
   if (isLoading) {
     return (
-      <div className="text-[var(--ds-text-2)] text-sm">
-        Transcribing and identifying speakers…
+      <div className="flex flex-col gap-3">
+        <p className="text-[var(--ds-text-2)] text-sm">
+          Transcribing and identifying speakers…
+        </p>
+        <ProgressBar
+          value={progress}
+          indeterminate={progress === 0}
+          className="max-w-72"
+        />
       </div>
     );
   }
@@ -48,7 +63,7 @@ export const DiarizationView = ({
           variant="ghost"
           size="sm"
           icon={<RotateCcw className="w-4 h-4" />}
-          onClick={onRun}
+          onClick={run}
         >
           Try again
         </Button>
@@ -70,11 +85,29 @@ export const DiarizationView = ({
           Identify who spoke when. Transcribes the whole recording and groups it
           by speaker. You can rename each speaker afterwards.
         </p>
+        <div className="flex items-center gap-3">
+          <Stepper
+            aria-label="Number of speakers"
+            value={speakerCount}
+            onChange={setSpeakerCount}
+            min={1}
+            max={20}
+            placeholder="Auto"
+          />
+          <div className="flex flex-col">
+            <span className="text-sm" style={{ color: "var(--ds-text)" }}>
+              Speakers on the call
+            </span>
+            <span className="text-xs text-[var(--ds-text-2)]">
+              Besides you · leave on Auto to detect it
+            </span>
+          </div>
+        </div>
         <Button
           variant="primary"
           size="sm"
           icon={<Users className="w-4 h-4" />}
-          onClick={onRun}
+          onClick={run}
         >
           Identify speakers
         </Button>
@@ -118,12 +151,17 @@ export const DiarizationView = ({
                       if (e.key === "Escape") setEditing(null);
                     }}
                     className="bg-transparent outline-none border-b w-32"
-                    style={{ borderColor: "var(--ds-border-2)", color: "var(--ds-text)" }}
+                    style={{
+                      borderColor: "var(--ds-border-2)",
+                      color: "var(--ds-text)",
+                    }}
                   />
                 ) : (
                   <>
                     {segment.label}
-                    <span className="ds-seg__time">{formatTime(segment.start)}</span>
+                    <span className="ds-seg__time">
+                      {formatTime(segment.start)}
+                    </span>
                     <button
                       type="button"
                       className="ds-seg__edit"
@@ -141,7 +179,12 @@ export const DiarizationView = ({
                       title="Jump to this moment"
                       aria-label="Play from here"
                       className="ds-seg__time inline-flex items-center gap-1 hover:underline"
-                      style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: 0,
+                      }}
                     >
                       <Play size={11} fill="currentColor" />
                       play

@@ -11,7 +11,7 @@ import {
 import { Button, PillToggle, Prose } from "@/design-system";
 import { useBoundStore } from "@/store";
 import { targetLabel } from "@/services/translation";
-import type { SummaryProvider } from "@/services/summary";
+import type { SummaryProvider, SummarySource } from "@/services/summary";
 
 const CLAUDE_CODE_URL = "https://docs.claude.com/en/docs/claude-code/setup";
 
@@ -19,6 +19,8 @@ interface SummaryViewProps {
   summary: string | undefined;
   /** On-demand translation of the summary + the language it was made for. */
   summaryTranslation: { lang: string; text: string } | undefined;
+  /** Whether a diarization result exists (enables the "By speaker" source). */
+  hasDiarization: boolean;
   /** Configured translation target (BCP-47 code); "" = none set. */
   translateTarget: string;
   isLoading: boolean;
@@ -29,7 +31,7 @@ interface SummaryViewProps {
   /** Whether the selected provider is ready to run. */
   summaryReady: boolean | undefined;
   summaryProvider: SummaryProvider;
-  onRun: () => void;
+  onRun: (source?: SummarySource) => void;
   onTranslate: () => void;
 }
 
@@ -38,6 +40,7 @@ type View = "original" | "translated";
 export const SummaryView = ({
   summary,
   summaryTranslation,
+  hasDiarization,
   translateTarget,
   isLoading,
   isTranslating,
@@ -50,7 +53,26 @@ export const SummaryView = ({
   onTranslate,
 }: SummaryViewProps) => {
   const [view, setView] = useState<View>("original");
+  // Explicit source pick; null = default (by speaker when diarization exists).
+  const [sourceChoice, setSourceChoice] = useState<SummarySource | null>(null);
   const openSettings = useBoundStore.use.openSettings();
+
+  const source: SummarySource = hasDiarization
+    ? (sourceChoice ?? "speakers")
+    : "transcript";
+  const run = () => onRun(source);
+
+  const sourceToggle = hasDiarization && (
+    <PillToggle
+      aria-label="Summary source"
+      options={[
+        { id: "speakers", label: "By speaker" },
+        { id: "transcript", label: "Raw transcript" },
+      ]}
+      value={source}
+      onChange={(id) => setSourceChoice(id as SummarySource)}
+    />
+  );
 
   if (isLoading) {
     return (
@@ -108,7 +130,7 @@ export const SummaryView = ({
           variant="ghost"
           size="sm"
           icon={<RotateCcw className="w-4 h-4" />}
-          onClick={onRun}
+          onClick={run}
         >
           Try again
         </Button>
@@ -130,11 +152,25 @@ export const SummaryView = ({
           Generate a TL;DR, key points, decisions, and action items from this
           meeting's transcript using Claude.
         </p>
+        {hasDiarization ? (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs text-[var(--ds-text-2)]">
+              Summarize from — “By speaker” attributes points and action items
+              to each person by name
+            </span>
+            {sourceToggle}
+          </div>
+        ) : (
+          <p className="text-xs text-[var(--ds-text-3)]">
+            Tip: run Identify speakers first and the summary can attribute
+            points and action items to each person by name.
+          </p>
+        )}
         <Button
           variant="primary"
           size="sm"
           icon={<Sparkles className="w-4 h-4" />}
-          onClick={onRun}
+          onClick={run}
         >
           Generate summary
         </Button>
@@ -204,15 +240,16 @@ export const SummaryView = ({
           </div>
         )
       ) : (
-        <div className="flex items-center gap-2 border-t border-[var(--ds-border)] pt-3">
+        <div className="flex items-center gap-3 border-t border-[var(--ds-border)] pt-3">
           <Button
             variant="ghost"
             size="sm"
             icon={<RefreshCw className="w-4 h-4" />}
-            onClick={onRun}
+            onClick={run}
           >
             Regenerate
           </Button>
+          {sourceToggle}
         </div>
       )}
     </div>
