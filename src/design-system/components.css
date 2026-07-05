@@ -445,6 +445,69 @@
   border-color: var(--ds-text-2);
 }
 
+/* ---------- Stepper ---------- */
+
+.ds-stepper {
+  display: inline-flex;
+  align-items: stretch;
+  font-family: var(--ds-font);
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border-2);
+  border-radius: var(--ds-radius-sm);
+  overflow: hidden;
+  transition: 0.12s;
+}
+/* Composed control: one ring around the whole group when the field has
+ * keyboard focus (mirrors the shared :focus-visible rule). */
+.ds-stepper:has(.ds-stepper__input:focus-visible) {
+  outline: 2px solid var(--ds-focus);
+  outline-offset: 2px;
+}
+.ds-stepper--disabled {
+  opacity: 0.5;
+}
+.ds-stepper__btn {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ds-text-2);
+  cursor: pointer;
+  transition: 0.12s;
+}
+.ds-stepper__btn:hover:not(:disabled) {
+  background: var(--ds-surface-2);
+  color: var(--ds-text);
+}
+.ds-stepper__btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.ds-stepper__btn svg {
+  width: 14px;
+  height: 14px;
+}
+.ds-stepper__input {
+  width: 56px;
+  padding: 7px 4px;
+  text-align: center;
+  font-family: var(--ds-font);
+  font-size: var(--ds-text-sm);
+  font-weight: 550;
+  color: var(--ds-text);
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--ds-border);
+  border-right: 1px solid var(--ds-border);
+  outline: none;
+}
+.ds-stepper__input::placeholder {
+  color: var(--ds-text-3);
+  font-weight: 500;
+}
+
 /* ---------- Select ---------- */
 .ds-select {
   position: relative;

@@ -19,8 +19,11 @@ import {
   getMeetingAudioPath,
   createNewMeeting,
 } from "@/services/meetings";
-import { diarizeMeeting } from "@/services/diarization";
-import { listenToTranslation, getTranslateConfig } from "@/services/translation";
+import { diarizeMeeting, onDiarizationProgress } from "@/services/diarization";
+import {
+  listenToTranslation,
+  getTranslateConfig,
+} from "@/services/translation";
 import { detectMeetingPlatform } from "@/services/meeting-detector";
 import { showCaption, hideCaption } from "@/services/caption";
 import {
@@ -31,6 +34,7 @@ import {
   isLocalModelAvailable,
   getSummaryProvider,
   type SummaryProvider,
+  type SummarySource,
 } from "@/services/summary";
 import { useBoundStore } from "@/store";
 import { friendlyError } from "@/lib/utils";
@@ -44,20 +48,27 @@ export const HomePage = () => {
   const [isPreparingModel, setIsPreparingModel] = useState(false);
   const [audioPath, setAudioPath] = useState<string>();
   const [isAutoScroll, setIsAutoScroll] = useState(true);
-  const [diarizingMeetingId, setDiarizingMeetingId] = useState<string | null>(null);
+  const [diarizingMeetingId, setDiarizingMeetingId] = useState<string | null>(
+    null,
+  );
   const [diarizationError, setDiarizationError] = useState<string>();
-  const [summarizingMeetingId, setSummarizingMeetingId] = useState<string | null>(null);
+  const [diarizationProgress, setDiarizationProgress] = useState(0);
+  const [summarizingMeetingId, setSummarizingMeetingId] = useState<
+    string | null
+  >(null);
   const [summaryError, setSummaryError] = useState<string>();
-  const [translatingMeetingId, setTranslatingMeetingId] = useState<string | null>(null);
+  const [translatingMeetingId, setTranslatingMeetingId] = useState<
+    string | null
+  >(null);
   const [translateError, setTranslateError] = useState<string>();
   // Configured summary-translation target (from Settings › Translation).
   const [translateTarget, setTranslateTarget] = useState<string>("");
   const [claudeReady, setClaudeReady] = useState<boolean>();
   const [localReady, setLocalReady] = useState<boolean>();
-  const [summaryProvider, setSummaryProvider] = useState<SummaryProvider>("claude");
+  const [summaryProvider, setSummaryProvider] =
+    useState<SummaryProvider>("claude");
   // Readiness of whichever provider is selected.
-  const summaryReady =
-    summaryProvider === "local" ? localReady : claudeReady;
+  const summaryReady = summaryProvider === "local" ? localReady : claudeReady;
   const [titlingMeetingId, setTitlingMeetingId] = useState<string | null>(null);
 
   // Zustand store
@@ -71,8 +82,7 @@ export const HomePage = () => {
   const addTranscriptToMeeting = useBoundStore.use.addTranscriptToMeeting();
   const updateTranscriptInMeeting =
     useBoundStore.use.updateTranscriptInMeeting();
-  const setTranslationForSegment =
-    useBoundStore.use.setTranslationForSegment();
+  const setTranslationForSegment = useBoundStore.use.setTranslationForSegment();
   const setTranscriptView = useBoundStore.use.setTranscriptView();
   const setDiarization = useBoundStore.use.setDiarization();
   const setSummary = useBoundStore.use.setSummary();
@@ -99,12 +109,13 @@ export const HomePage = () => {
     !isCapturing &&
     currentMeeting.transcript.length > 0;
 
-  const handleRunDiarization = async () => {
+  const handleRunDiarization = async (numSpeakers?: number) => {
     if (!currentMeetingId || diarizingMeetingId !== null) return;
     setDiarizingMeetingId(currentMeetingId);
     setDiarizationError(undefined);
+    setDiarizationProgress(0);
     try {
-      const segments = await diarizeMeeting(currentMeetingId);
+      const segments = await diarizeMeeting(currentMeetingId, numSpeakers);
       setDiarization(currentMeetingId, segments);
       const meeting = getCurrentMeeting();
       if (meeting) {
@@ -113,14 +124,17 @@ export const HomePage = () => {
     } catch (error) {
       console.error("Diarization failed", error);
       setDiarizationError(
-        friendlyError(error, "Speaker identification failed. Please try again."),
+        friendlyError(
+          error,
+          "Speaker identification failed. Please try again.",
+        ),
       );
     } finally {
       setDiarizingMeetingId(null);
     }
   };
 
-  const handleGenerateSummary = async () => {
+  const handleGenerateSummary = async (source?: SummarySource) => {
     if (!currentMeetingId || summarizingMeetingId !== null) return;
     setSummarizingMeetingId(currentMeetingId);
     setSummaryError(undefined);
@@ -132,7 +146,7 @@ export const HomePage = () => {
       if (current) {
         await saveMeeting(current);
       }
-      const summary = await summarizeMeeting(currentMeetingId);
+      const summary = await summarizeMeeting(currentMeetingId, source);
       setSummary(currentMeetingId, summary);
       const meeting = getCurrentMeeting();
       if (meeting) {
@@ -141,7 +155,10 @@ export const HomePage = () => {
     } catch (error) {
       console.error("Summary failed", error);
       setSummaryError(
-        friendlyError(error, "Couldn't generate the summary. Please try again."),
+        friendlyError(
+          error,
+          "Couldn't generate the summary. Please try again.",
+        ),
       );
     } finally {
       setSummarizingMeetingId(null);
@@ -226,6 +243,19 @@ export const HomePage = () => {
   };
 
   // On opening the Diarization tab, run it once if there's no cached result.
+
+  // Track diarization progress for the meeting currently being processed.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    onDiarizationProgress((progress) => {
+      setDiarizationProgress(progress.fraction);
+    }).then((release) => {
+      unlisten = release;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, []);
 
   // Show a "preparing model" state while the ASR engine loads on first record.
   useEffect(() => {
@@ -667,12 +697,14 @@ export const HomePage = () => {
         messagesEndRef={messagesEndRef}
         diarization={currentMeeting?.diarization}
         isDiarizing={isDiarizing}
+        diarizationProgress={diarizationProgress}
         diarizationError={diarizationError}
         canDiarize={canDiarize}
         onRunDiarization={handleRunDiarization}
         onRenameSpeaker={handleRenameSpeaker}
         summary={currentMeeting?.summary}
         summaryTranslation={currentMeeting?.summaryTranslation}
+        hasDiarization={!!currentMeeting?.diarization?.length}
         translateTarget={translateTarget}
         isSummarizing={isSummarizing}
         isTranslating={isTranslating}

@@ -37,6 +37,9 @@ export type { PillToggleProps, PillOption } from "./PillToggle";
 export { Select } from "./Select";
 export type { SelectProps, SelectOption } from "./Select";
 
+export { Stepper } from "./Stepper";
+export type { StepperProps } from "./Stepper";
+
 export { Avatar } from "./Avatar";
 export type { AvatarProps, AvatarSize } from "./Avatar";
 

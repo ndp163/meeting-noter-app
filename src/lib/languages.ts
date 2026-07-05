@@ -7,7 +7,7 @@ export interface LanguageInfo {
   label: string;
   /** Native label shown in the picker (e.g. 日本語). */
   native: string;
-  /** Approximate on-disk download size (ASR model). Diarizer (~13 MB) is
+  /** Approximate on-disk download size (ASR model). The offline diarizer is
    *  shared and downloaded once with the first language. */
   approxSize: string;
 }
