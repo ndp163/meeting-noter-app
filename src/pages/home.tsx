@@ -82,6 +82,7 @@ export const HomePage = () => {
   const addTranscriptToMeeting = useBoundStore.use.addTranscriptToMeeting();
   const updateTranscriptInMeeting =
     useBoundStore.use.updateTranscriptInMeeting();
+  const closeTranscriptMessage = useBoundStore.use.closeTranscriptMessage();
   const setTranslationForSegment = useBoundStore.use.setTranslationForSegment();
   const setTranscriptView = useBoundStore.use.setTranscriptView();
   const setDiarization = useBoundStore.use.setDiarization();
@@ -380,15 +381,27 @@ export const HomePage = () => {
       const lastMessageOfSource =
         lastIndexOfSource >= 0 ? transcript[lastIndexOfSource] : null;
 
-      // If sentence was finalized (is_sentence_final=true), always create new message
-      if (lastMessageOfSource?.sentenceFinal) {
-        const newMessage = mapPayloadToMessage(payload);
-        addTranscriptToMeeting(meeting.id, newMessage);
-        return;
-      }
+      // The other party interjected when a FINISHED (sentence-final) message
+      // from the other stream sits below our open message. Merging into that
+      // open message would splice the continuation ABOVE the interjection,
+      // breaking chronological order — start a new message below it instead.
+      // A still-open message from the other stream (genuine overlap) does NOT
+      // split, so simultaneous speech keeps updating both lines in place
+      // instead of fragmenting into one message per chunk.
+      const interjected =
+        lastMessageOfSource !== null &&
+        !lastMessageOfSource.sentenceFinal &&
+        transcript
+          .slice(lastIndexOfSource + 1)
+          .some((m) => m.source !== payload.source && m.sentenceFinal);
 
-      // Update existing message if: found message from same source AND not sentence-finalized yet
-      if (lastMessageOfSource && !lastMessageOfSource.sentenceFinal) {
+      // Update existing message if: same-source message is still open (not
+      // sentence-finalized) and nobody interjected since
+      if (
+        lastMessageOfSource &&
+        !lastMessageOfSource.sentenceFinal &&
+        !interjected
+      ) {
         const currentMsg = lastMessageOfSource;
 
         // Determine new content based on is_result_final and committedContent
@@ -421,7 +434,14 @@ export const HomePage = () => {
         return;
       }
 
-      // Create new message (no previous from this source, or last was sentence-finalized)
+      // Close the cut-off message before starting the new line: the incoming
+      // payload re-carries its interim tail, so it must not stay duplicated.
+      if (interjected && lastMessageOfSource) {
+        closeTranscriptMessage(meeting.id, lastMessageOfSource.id);
+      }
+
+      // Create new message (no previous from this source, last was
+      // sentence-finalized, or the other stream interjected)
       const newMessage = mapPayloadToMessage(payload);
       addTranscriptToMeeting(meeting.id, newMessage);
     })
@@ -442,6 +462,7 @@ export const HomePage = () => {
     getCurrentMeeting,
     addTranscriptToMeeting,
     updateTranscriptInMeeting,
+    closeTranscriptMessage,
   ]);
 
   // Realtime translation: attach translated text to its transcript line.

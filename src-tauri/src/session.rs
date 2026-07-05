@@ -296,6 +296,11 @@ struct MsgState {
     start_sec: f32,
     committed: String,
     done: bool,
+    /// Creation order of the current (or last) message, mirroring the
+    /// message's position in the frontend transcript.
+    seq: u64,
+    /// `seq` of this source's most recently *finished* message (0 = none).
+    last_closed_seq: u64,
 }
 
 /// Translate jobs in order, collapsing superseded partials, and translate the
@@ -313,6 +318,7 @@ async fn translate_worker(
     mut rx: mpsc::UnboundedReceiver<TranslateJob>,
 ) {
     let mut states: HashMap<String, MsgState> = HashMap::new();
+    let mut next_seq: u64 = 0;
 
     while let Some(first) = rx.recv().await {
         // Collapse everything currently queued, keeping the latest per segment
@@ -333,12 +339,34 @@ async fn translate_worker(
         for k in order {
             let Some(job) = latest.remove(&k) else { continue };
 
+            // Mirror of the frontend's interjection split: another stream
+            // finished a message *after* this source's open message started,
+            // so the continuation begins a fresh line (and fresh translation)
+            // instead of merging into the cut-off message.
+            let interjected = states
+                .get(&job.source)
+                .filter(|st| !st.done)
+                .map(|st| st.seq)
+                .is_some_and(|seq| {
+                    states
+                        .iter()
+                        .any(|(src, other)| *src != job.source && other.last_closed_seq > seq)
+                });
+
             let st = states.entry(job.source.clone()).or_insert_with(|| MsgState {
                 done: true,
                 ..Default::default()
             });
-            // Sentence boundary → the next result starts a fresh message.
-            if st.done {
+            // Sentence boundary (or an interjection) → the next result starts
+            // a fresh message.
+            if st.done || interjected {
+                if interjected && !st.committed.is_empty() {
+                    // The frontend froze the cut-off line at its committed
+                    // text — that counts as a finished message.
+                    st.last_closed_seq = st.seq;
+                }
+                next_seq += 1;
+                st.seq = next_seq;
                 st.start_sec = job.start_sec;
                 st.committed = String::new();
                 st.done = false;
@@ -361,6 +389,7 @@ async fn translate_worker(
             let msg_start = st.start_sec;
             if job.is_sentence_final {
                 st.done = true;
+                st.last_closed_seq = st.seq;
             }
 
             match crate::bridges::translate::translate(&source_lang, &target, &content).await {
