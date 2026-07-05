@@ -1,5 +1,13 @@
 import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import {
+  Sparkles,
+  RefreshCw,
+  RotateCcw,
+  Languages,
+  Download,
+  ExternalLink,
+} from "lucide-react";
 import { Button, PillToggle, Prose } from "@/design-system";
 import { useBoundStore } from "@/store";
 import { targetLabel } from "@/services/translation";
@@ -61,13 +69,14 @@ export const SummaryView = ({
           The on-device summary model isn't installed yet. Download it once
           (~2.3 GB) and summaries run fully offline — no network, no login.
         </p>
-        <button
-          type="button"
-          className="underline text-[var(--ds-text)] hover:text-[var(--ds-accent)]"
+        <Button
+          variant="primary"
+          size="sm"
+          icon={<Download className="w-4 h-4" />}
           onClick={() => openSettings("summary")}
         >
           Download the on-device model
-        </button>
+        </Button>
       </div>
     ) : (
       <div className="flex flex-col gap-2 items-start text-[var(--ds-text-2)] text-sm">
@@ -79,13 +88,14 @@ export const SummaryView = ({
           <code className="text-[var(--ds-text)]">claude login</code>, then
           reopen this tab.
         </p>
-        <button
-          type="button"
-          className="underline text-[var(--ds-text)] hover:text-[var(--ds-accent)]"
+        <Button
+          variant="primary"
+          size="sm"
+          icon={<ExternalLink className="w-4 h-4" />}
           onClick={() => void openUrl(CLAUDE_CODE_URL)}
         >
           Install the Claude Code CLI
-        </button>
+        </Button>
       </div>
     );
   }
@@ -94,7 +104,12 @@ export const SummaryView = ({
     return (
       <div className="flex flex-col gap-3 items-start">
         <p className="text-sm text-[var(--ds-rec)]">{error}</p>
-        <Button variant="ghost" pill onClick={onRun}>
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={<RotateCcw className="w-4 h-4" />}
+          onClick={onRun}
+        >
           Try again
         </Button>
       </div>
@@ -115,7 +130,12 @@ export const SummaryView = ({
           Generate a TL;DR, key points, decisions, and action items from this
           meeting's transcript using Claude.
         </p>
-        <Button variant="ghost" pill onClick={onRun}>
+        <Button
+          variant="primary"
+          size="sm"
+          icon={<Sparkles className="w-4 h-4" />}
+          onClick={onRun}
+        >
           Generate summary
         </Button>
       </div>
@@ -155,7 +175,12 @@ export const SummaryView = ({
               Translating to {label}…
             </p>
           ) : (
-            <Button variant="ghost" pill onClick={onTranslate}>
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<Languages className="w-4 h-4" />}
+              onClick={onTranslate}
+            >
               Translate to {label}
             </Button>
           )}
@@ -164,16 +189,32 @@ export const SummaryView = ({
         <Prose markdown={showingTranslation ? translation : summary} />
       )}
 
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" pill onClick={onRun}>
-          Regenerate
-        </Button>
-        {showingTranslation && translation && !isTranslating && (
-          <Button variant="ghost" pill onClick={onTranslate}>
-            Retranslate
+      {showingTranslation ? (
+        translation &&
+        !isTranslating && (
+          <div className="flex items-center gap-2 border-t border-[var(--ds-border)] pt-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<Languages className="w-4 h-4" />}
+              onClick={onTranslate}
+            >
+              Retranslate
+            </Button>
+          </div>
+        )
+      ) : (
+        <div className="flex items-center gap-2 border-t border-[var(--ds-border)] pt-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<RefreshCw className="w-4 h-4" />}
+            onClick={onRun}
+          >
+            Regenerate
           </Button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };
