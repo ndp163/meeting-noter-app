@@ -40,7 +40,9 @@
     ],
     "macOS": {
       "frameworks": [
-        "lib/libFluidAudioBridge.dylib"
+        "lib/libFluidAudioBridge.dylib",
+        "lib/libsherpa-onnx-c-api.dylib",
+        "lib/libonnxruntime.1.24.4.dylib"
       ],
       "minimumSystemVersion": "13.0",
       "entitlements": "entitlements.plist"

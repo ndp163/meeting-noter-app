@@ -260,9 +260,10 @@ impl AudioRecorder {
         events_tx: Option<Sender<TranscriptionEvent>>,
         sample_rate: u32,
     ) {
+        let language = self.current_language.clone().unwrap_or_else(|| "en".to_string());
         tokio::task::spawn_blocking(move || {
             tracing::info!(?source, "Transcription pipeline starting");
-            transcription::run(rx, sample_rate, transcriber, move |result| {
+            transcription::run(rx, sample_rate, transcriber, &language, move |result| {
                 if let Some(tx) = events_tx.as_ref() {
                     let _ = tx.send(TranscriptionEvent::new(source, result));
                 }

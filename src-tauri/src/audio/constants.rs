@@ -62,8 +62,14 @@ pub const MAX_BUFFER_SAMPLES: usize = SAMPLE_RATE_16KHZ as usize * 8;
 pub const VAD_FRAME_SAMPLES: usize = 4096;
 
 /// Voice probability above which a *new* utterance starts. Kept high so room
-/// noise and keystrokes don't trip speech detection.
+/// noise and keystrokes don't trip speech detection. Vietnamese lowers this
+/// (see `VAD_ENTER_THRESHOLD_VI`) because its quieter-talker recordings need
+/// more sensitivity.
 pub const VAD_ENTER_THRESHOLD: f32 = 0.8;
+
+/// More sensitive enter threshold used for Vietnamese only — picks up quieter
+/// speech / low-gain mics that don't reach the default 0.8.
+pub const VAD_ENTER_THRESHOLD_VI: f32 = 0.6;
 
 /// Voice probability below which an *ongoing* utterance is treated as silence.
 /// Lower than the enter threshold (hysteresis): once speaking, soft trailing

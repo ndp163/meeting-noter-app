@@ -16,7 +16,8 @@ use serde::Serialize;
 use tauri::{command, AppHandle, Emitter};
 
 /// Languages the app can transcribe. Mirrors the frontend `MeetingLanguage`.
-const ALL_LANGUAGES: [MeetingLanguage; 2] = [MeetingLanguage::En, MeetingLanguage::Ja];
+const ALL_LANGUAGES: [MeetingLanguage; 3] =
+    [MeetingLanguage::En, MeetingLanguage::Ja, MeetingLanguage::Vi];
 
 #[derive(Clone, Serialize)]
 struct ProgressEvent {
