@@ -80,15 +80,34 @@ export const MainContent = ({
 }: MainContentProps) => {
   const playerRef = useRef<AudioPlayerHandle>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  // "segIndex:wordIndex" of the diarized word under the playhead.
+  const [activeWordId, setActiveWordId] = useState<string | null>(null);
   const transcriptView = useBoundStore.use.transcriptView();
 
-  // Map playback position → the last message that has started by then.
+  // Map playback position → the last message that has started by then, and
+  // (on the diarization tab) the exact word under the playhead.
   const handleTimeUpdate = (seconds: number) => {
     let id: string | null = null;
     for (const m of messages) {
       if (m.audioOffset !== undefined && m.audioOffset <= seconds) id = m.id;
     }
     setActiveId((prev) => (prev === id ? prev : id));
+
+    let wordId: string | null = null;
+    if (activeTab === "diarization" && diarization) {
+      outer: for (let si = 0; si < diarization.length; si++) {
+        const seg = diarization[si];
+        if (!seg.words || seconds < seg.start || seconds > seg.end) continue;
+        for (let wi = 0; wi < seg.words.length; wi++) {
+          const w = seg.words[wi];
+          if (w.start <= seconds && seconds <= w.end) {
+            wordId = `${si}:${wi}`;
+            break outer;
+          }
+        }
+      }
+    }
+    setActiveWordId((prev) => (prev === wordId ? prev : wordId));
   };
 
   // Keep the playing line in view as audio advances.
@@ -99,6 +118,15 @@ export const MainContent = ({
     );
     el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [activeId]);
+
+  // Keep the playing word in view on the diarization tab.
+  useEffect(() => {
+    if (!activeWordId) return;
+    const el = document.querySelector(
+      `[data-word-id="${CSS.escape(activeWordId)}"]`,
+    );
+    el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [activeWordId]);
 
   return (
     <div className="flex flex-col gap-2.5 flex-1 p-5 overflow-hidden">
@@ -259,6 +287,7 @@ export const MainContent = ({
               onRun={onRunDiarization}
               onRenameSpeaker={onRenameSpeaker}
               onSeek={(seconds) => playerRef.current?.seek(seconds)}
+              activeWordId={activeWordId}
             />
           ) : (
             <SummaryView

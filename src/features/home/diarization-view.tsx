@@ -13,6 +13,8 @@ interface DiarizationViewProps {
   onRun: (numSpeakers?: number) => void;
   onRenameSpeaker: (speakerId: string, label: string) => void;
   onSeek: (seconds: number) => void;
+  /** `"segIndex:wordIndex"` of the word under the playhead, for highlight. */
+  activeWordId?: string | null;
 }
 
 const formatTime = (seconds: number) => {
@@ -31,6 +33,7 @@ export const DiarizationView = ({
   onRun,
   onRenameSpeaker,
   onSeek,
+  activeWordId,
 }: DiarizationViewProps) => {
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
@@ -192,7 +195,38 @@ export const DiarizationView = ({
                   </>
                 )}
               </div>
-              <div className="ds-seg__txt">{segment.text}</div>
+              {/* Word-level seek: each word carries its exact time span, so a
+                  click jumps the audio right to it. The word under the
+                  playhead is highlighted (segment text is the fallback for
+                  meetings diarized before word timings existed). */}
+              <div className="ds-seg__txt">
+                {segment.words?.length
+                  ? segment.words.map((word, wi) => {
+                      const id = `${index}:${wi}`;
+                      return (
+                        <span key={wi}>
+                          {wi > 0 && " "}
+                          <span
+                            data-word-id={id}
+                            onClick={() => onSeek(word.start)}
+                            title="Jump to this word"
+                            className="cursor-pointer rounded-[3px] px-px -mx-px hover:bg-[var(--ds-surface-2)]"
+                            style={
+                              activeWordId === id
+                                ? {
+                                    background: "var(--ds-border-2)",
+                                    color: "var(--ds-text)",
+                                  }
+                                : undefined
+                            }
+                          >
+                            {word.text}
+                          </span>
+                        </span>
+                      );
+                    })
+                  : segment.text}
+              </div>
             </div>
           </div>
         );

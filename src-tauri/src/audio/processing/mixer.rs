@@ -1,6 +1,7 @@
 use crossbeam_channel::Receiver;
 use hound;
 use std::io::{Seek, Write};
+use std::time::{Duration, Instant};
 
 use crate::paths;
 use crate::types::AudioSource;
@@ -99,16 +100,45 @@ pub fn mixer(
     let mic_gain = DEFAULT_MIC_GAIN;
     let sys_gain = DEFAULT_SYSTEM_GAIN;
 
+    // Shared t=0 for the two sources. The mic device and the system tap spin
+    // up at different moments, and each track file otherwise starts at its own
+    // stream's first buffer — a constant skew between mic.wav and speaker.wav.
+    // Diarization merges segment timestamps across the two files, so that skew
+    // reorders speaker turns. Whichever source delivers first defines the
+    // epoch; the later one is padded with leading silence to compensate (in
+    // its track file and its mix buffer, keeping audio.wav consistent).
+    let mut epoch: Option<Instant> = None;
+    let mut mic_padded = !has_mic;
+    let mut sys_padded = false;
+
     tracing::info!(target_rate, mic_rate, mic_gain, sys_gain, has_mic, "Mixer started for WAV recording");
 
     loop {
         match rx.recv() {
             Ok(AudioSource::Mic(data)) => {
+                if !mic_padded {
+                    mic_padded = true;
+                    let pad = alignment_pad(&mut epoch, data.len(), mic_rate, target_rate);
+                    if pad > 0 {
+                        tracing::info!(samples = pad, "Padding mic track to the shared start");
+                        write_silence(&mut mic_writer, pad);
+                        mic_buf.resize(pad, 0.0);
+                    }
+                }
                 let data = mic_resampler.process(&data);
                 write_track(&mut mic_writer, &data, mic_gain);
                 mic_buf.extend(data);
             }
             Ok(AudioSource::System(data)) => {
+                if !sys_padded {
+                    sys_padded = true;
+                    let pad = alignment_pad(&mut epoch, data.len(), target_rate, target_rate);
+                    if pad > 0 {
+                        tracing::info!(samples = pad, "Padding speaker track to the shared start");
+                        write_silence(&mut speaker_writer, pad);
+                        sys_buf.resize(pad, 0.0);
+                    }
+                }
                 write_track(&mut speaker_writer, &data, sys_gain);
                 sys_buf.extend(data);
             }
@@ -175,6 +205,43 @@ fn write_track(writer: &mut Option<TrackWriter>, data: &[f32], gain: f32) {
     if let Some(w) = writer.as_mut() {
         for &sample in data {
             if w.write_sample(to_i16(sample * gain)).is_err() {
+                return;
+            }
+        }
+    }
+}
+
+/// Register a source's first buffer and return the silence samples (at
+/// `target_rate`) to prepend so its track starts at the shared epoch. The
+/// buffer's audio began `len / rate` seconds before now; whichever source
+/// arrives first defines the epoch and needs no padding. Subtracting the
+/// buffer's own duration keeps the estimate fair when the two sources deliver
+/// different first-buffer sizes.
+fn alignment_pad(
+    epoch: &mut Option<Instant>,
+    len: usize,
+    rate: u32,
+    target_rate: u32,
+) -> usize {
+    let age = Duration::from_secs_f64(len as f64 / rate.max(1) as f64);
+    let start = Instant::now().checked_sub(age).unwrap_or_else(Instant::now);
+    match epoch {
+        None => {
+            *epoch = Some(start);
+            0
+        }
+        Some(e) => {
+            let offset = start.saturating_duration_since(*e);
+            (offset.as_secs_f64() * f64::from(target_rate)) as usize
+        }
+    }
+}
+
+/// Prepend silence to an optional per-source track writer.
+fn write_silence(writer: &mut Option<TrackWriter>, samples: usize) {
+    if let Some(w) = writer.as_mut() {
+        for _ in 0..samples {
+            if w.write_sample(0i16).is_err() {
                 return;
             }
         }

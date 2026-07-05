@@ -21,6 +21,15 @@ struct DiarizedSegment: Codable {
     let start: Float
     let end: Float
     let text: String
+    // Per-word time spans, for word-level seek in the UI.
+    let words: [DiarizedWord]
+}
+
+// One word with its exact time span inside a diarized segment.
+struct DiarizedWord: Codable {
+    let text: String
+    let start: Float
+    let end: Float
 }
 
 // All model managers and stream state live inside this actor. Actor isolation
@@ -274,6 +283,14 @@ actor FluidAudioBridge {
         return out
     }
 
+    /// Tokens further than this (seconds) from every diarized segment are
+    /// dropped instead of glued onto the nearest one. Such tokens sit in a
+    /// region the diarizer heard as silence (or missed entirely), so any
+    /// attribution is a guess that usually lands on the wrong speaker.
+    /// Slightly above the 1.0s `mergeAdjacentSegments` gap so tokens straddling
+    /// a merged boundary (plus ASR timing jitter) still attach.
+    private static let maxTokenAttachDistance: Float = 1.5
+
     private func bucketIntoSpeakerSegments(
         _ diarSegments: [TimedSpeakerSegment],
         timings: [TokenTiming]
@@ -288,6 +305,7 @@ actor FluidAudioBridge {
         }
 
         var texts = [String](repeating: "", count: sorted.count)
+        var tokens = [[TokenTiming]](repeating: [], count: sorted.count)
         for timing in timings {
             let mid = Float((timing.startTime + timing.endTime) / 2.0)
             var bestIdx = 0
@@ -306,7 +324,9 @@ actor FluidAudioBridge {
                     bestIdx = i
                 }
             }
+            if bestDistance > Self.maxTokenAttachDistance { continue }
             texts[bestIdx] += timing.token
+            tokens[bestIdx].append(timing)
         }
 
         var out: [DiarizedSegment] = []
@@ -317,9 +337,39 @@ actor FluidAudioBridge {
                 speaker: speakerIndex[seg.speakerId] ?? 0,
                 start: seg.startTimeSeconds,
                 end: seg.endTimeSeconds,
-                text: text
+                text: text,
+                words: wordsFromTokens(tokens[i])
             ))
         }
+        return out
+    }
+
+    // Group a segment's tokens (time-ordered) into words with exact time
+    // spans. Parakeet's sub-word tokens carry their own leading space at word
+    // starts, which is what splits words here; tokenizers without spaces
+    // (e.g. Japanese) produce coarser groups, degrading gracefully to
+    // phrase-level click targets.
+    private func wordsFromTokens(_ tokens: [TokenTiming]) -> [DiarizedWord] {
+        var out: [DiarizedWord] = []
+        var text = ""
+        var start: Float = 0
+        var end: Float = 0
+
+        func flush() {
+            let clean = cleanText(text)
+            if !clean.isEmpty {
+                out.append(DiarizedWord(text: clean, start: start, end: end))
+            }
+            text = ""
+        }
+
+        for tok in tokens {
+            if tok.token.first?.isWhitespace == true { flush() }
+            if text.isEmpty { start = Float(tok.startTime) }
+            text += tok.token
+            end = Float(tok.endTime)
+        }
+        flush()
         return out
     }
 

@@ -107,6 +107,55 @@ pub fn get_meeting_data_path(meeting_id: &str) -> PathBuf {
     get_meeting_dir(meeting_id).join("data.json")
 }
 
+/// Repair a WAV whose RIFF/data chunk sizes were never finalized (the
+/// recorder was killed mid-write — hound only rewrites the header sizes on
+/// finalize, so a crash leaves them at 0). CoreAudio refuses such files with
+/// `kAudioFileInvalidFileError` ('dta?'), permanently breaking playback and
+/// diarization of that meeting. Sizes are recomputed from the real file
+/// length; well-formed files are left untouched.
+pub fn repair_wav_header(path: &std::path::Path) -> std::io::Result<()> {
+    use std::io::{Read, Seek, SeekFrom, Write};
+
+    let mut file = std::fs::OpenOptions::new().read(true).write(true).open(path)?;
+    let file_len = file.metadata()?.len();
+    if file_len < 44 {
+        return Ok(()); // too short to hold any samples; nothing to salvage
+    }
+
+    let mut header = [0u8; 12];
+    file.read_exact(&mut header)?;
+    if &header[0..4] != b"RIFF" || &header[8..12] != b"WAVE" {
+        return Ok(());
+    }
+
+    // Walk the chunk list to find `data` (its payload runs to end-of-file in
+    // hound-written recordings).
+    let mut pos: u64 = 12;
+    while pos + 8 <= file_len {
+        file.seek(SeekFrom::Start(pos))?;
+        let mut chunk = [0u8; 8];
+        file.read_exact(&mut chunk)?;
+        let size = u64::from(u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]));
+        if &chunk[0..4] == b"data" {
+            let actual = file_len - (pos + 8);
+            if size == actual {
+                return Ok(()); // header is consistent; leave it alone
+            }
+            file.seek(SeekFrom::Start(pos + 4))?;
+            file.write_all(&(actual as u32).to_le_bytes())?;
+            file.seek(SeekFrom::Start(4))?;
+            file.write_all(&((file_len - 8) as u32).to_le_bytes())?;
+            tracing::info!(path = %path.display(), "Repaired unfinalized WAV header");
+            return Ok(());
+        }
+        if size == 0 {
+            return Ok(()); // corrupt chunk list; don't loop forever
+        }
+        pos += 8 + size + (size & 1);
+    }
+    Ok(())
+}
+
 /// Get the meetings index file path
 pub fn get_meetings_index_path() -> PathBuf {
     get_recordings_dir().join("index.json")

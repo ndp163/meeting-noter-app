@@ -26,6 +26,7 @@ export interface MeetingsSlice {
     messageId: string,
     updates: Partial<TranscriptMessage>
   ) => void;
+  closeTranscriptMessage: (meetingId: string, messageId: string) => void;
   setTranslationForSegment: (
     meetingId: string,
     source: "mic" | "speaker",
@@ -115,6 +116,29 @@ export const createMeetingsSlice: StateCreator<
         ...state.meetings[meetingIdx].transcript[transcriptIdx],
         ...updates,
       };
+    }),
+
+  // Close an open (not sentence-final) message that was cut off by the other
+  // stream's interjection. Its interim tail is superseded by the payload that
+  // starts the next message, so freeze it at the committed text — or drop the
+  // message entirely when nothing was committed yet (its text re-appears in
+  // the new message below, keeping the timeline chronological).
+  closeTranscriptMessage: (meetingId, messageId) =>
+    set((state) => {
+      const meeting = state.meetings.find((m) => m.id === meetingId);
+      if (!meeting) return;
+      const idx = meeting.transcript.findIndex((msg) => msg.id === messageId);
+      if (idx === -1) return;
+      const msg = meeting.transcript[idx];
+      if (msg.sentenceFinal) return;
+      if (msg.committedContent) {
+        msg.content = msg.committedContent;
+        msg.isFinal = true;
+        msg.sentenceFinal = true;
+      } else {
+        meeting.transcript.splice(idx, 1);
+      }
+      meeting.updatedAt = Date.now();
     }),
 
   // Match a translation to its transcript line by source + start offset (the

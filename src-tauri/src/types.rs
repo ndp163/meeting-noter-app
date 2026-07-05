@@ -56,6 +56,18 @@ pub struct DiarizedSegment {
     pub start: f32,
     pub end: f32,
     pub text: String,
+    /// Per-word time spans for word-level seek. Empty on meetings diarized
+    /// before words were recorded.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub words: Vec<DiarizedWord>,
+}
+
+/// One word with its exact time span inside a diarized segment.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiarizedWord {
+    pub text: String,
+    pub start: f32,
+    pub end: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
