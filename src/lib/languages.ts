@@ -13,10 +13,12 @@ export interface LanguageInfo {
 }
 
 /** All supported languages, in display order. Keep in sync with the Rust
- *  `MeetingLanguage` enum and the ASR model versions (en → v2, ja → tdtJa). */
+ *  `MeetingLanguage` enum and the ASR model versions (en → v2, ja → tdtJa,
+ *  vi → standalone Parakeet-CTC). */
 export const LANGUAGES: LanguageInfo[] = [
   { id: "en", label: "English", native: "English", approxSize: "Estimating" },
   { id: "ja", label: "Japanese", native: "日本語", approxSize: "Estimating" },
+  { id: "vi", label: "Vietnamese", native: "Tiếng Việt", approxSize: "Estimating" },
 ];
 
 export const languageInfo = (id: MeetingLanguage): LanguageInfo =>

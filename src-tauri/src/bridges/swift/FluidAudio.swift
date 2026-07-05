@@ -23,6 +23,15 @@ struct DiarizedSegment: Codable {
     let text: String
 }
 
+// A decoded token with timing, source-agnostic: produced from FluidAudio's
+// TokenTiming (TDT path) or from the Vietnamese CTC decoder. Lets the diarization
+// bucketing run identically for both ASR backends.
+struct TokenSpan {
+    let token: String
+    let start: TimeInterval
+    let end: TimeInterval
+}
+
 // All model managers and stream state live inside this actor. Actor isolation
 // serializes every read/write of the shared reference-typed properties
 // (asrManager/models/diarizer/vadManager) and the VAD state dict, which is what
@@ -36,9 +45,21 @@ actor FluidAudioBridge {
     private var diarizer: DiarizerManager?
     // Selected per session by the requested language (see modelVersion(forLanguage:)).
     private var modelVersion: AsrModelVersion = .v2
+    // Standalone CTC recognizer for Vietnamese (not a FluidAudio AsrModelVersion).
+    // When set, it handles transcription instead of asrManager.
+    private var viCtc: VietnameseCtcRecognizer?
+
+    /// Vietnamese uses a standalone CTC CoreML model, not a FluidAudio model.
+    private static func isVietnamese(_ language: String?) -> Bool {
+        switch language?.lowercased() {
+        case "vi", "vi-vn", "vn": return true
+        default: return false
+        }
+    }
 
     /// Map a language code to the ASR model. Japanese uses the dedicated tdtJa
-    /// Parakeet model; everything else uses the English-only v2 model.
+    /// Parakeet model; everything else uses the English-only v2 model. (Vietnamese
+    /// is handled separately by `viCtc`, not through AsrModelVersion.)
     private static func modelVersion(forLanguage language: String?) -> AsrModelVersion {
         switch language?.lowercased() {
         case "ja", "jp", "ja-jp": return .tdtJa
@@ -84,18 +105,23 @@ actor FluidAudioBridge {
     // MARK: - Initialization
 
     func initialize(modelPath: String?, language: String?) async throws {
-        self.modelVersion = Self.modelVersion(forLanguage: language)
-        print("Swift FluidAudio: Starting initialization (modelVersion: \(self.modelVersion))")
-
-        // Initialize VAD
+        // Initialize VAD (shared by every language).
         print("Swift FluidAudio: Initializing VAD...")
         self.vadManager = try await VadManager(
             config: VadConfig(defaultThreshold: 0.5)
         )
         print("Swift FluidAudio: VAD initialized")
 
-        // Initialize ASR
-        print("Swift FluidAudio: Loading Parakeet models...")
+        // Vietnamese: load the standalone CTC recognizer, skip the FluidAudio ASR.
+        if Self.isVietnamese(language) {
+            print("Swift FluidAudio: Loading Vietnamese CTC model...")
+            self.viCtc = try VietnameseCtcRecognizer()
+            print("Swift FluidAudio: Vietnamese CTC initialized")
+            return
+        }
+
+        self.modelVersion = Self.modelVersion(forLanguage: language)
+        print("Swift FluidAudio: Loading Parakeet models (modelVersion: \(self.modelVersion))...")
         let models = try await AsrModels.downloadAndLoad(version: self.modelVersion)
         let manager = AsrManager(config: .default, models: models)
         self.models = models
@@ -106,13 +132,20 @@ actor FluidAudioBridge {
     // MARK: - Transcription
 
     func transcribe(audioData: Data) async throws -> String {
+        // Transcription input arrives as 16-bit PCM bytes.
+        let audioArray = pcm16ToFloat(audioData)
+
+        // Vietnamese CTC path.
+        if let viCtc = viCtc {
+            return try await runSerialized {
+                try viCtc.transcribe(audioArray).text
+            }
+        }
+
         guard let asrManager = asrManager else {
             throw NSError(domain: "FluidAudio", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "FluidAudio not initialized"])
         }
-
-        // Transcription input arrives as 16-bit PCM bytes.
-        let audioArray = pcm16ToFloat(audioData)
         // Each call transcribes one complete VAD segment independently, so a
         // fresh decoder state per call matches the old stateless behaviour.
         let result = try await runSerialized {
@@ -156,18 +189,29 @@ actor FluidAudioBridge {
     /// `diarize == false`: single speaker, split into segments on silence gaps
     /// (used for the known "You" mic track). Returns segments as JSON.
     func diarizeFile(path: String, diarize: Bool, language: String?) async throws -> String {
-        try await ensureAsrLoaded(version: Self.modelVersion(forLanguage: language))
-        guard let asrManager = asrManager else {
-            throw NSError(domain: "FluidAudio", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "ASR not initialized"])
-        }
-
         let samples = try AudioConverter().resampleAudioFile(path: path)
-        let asr = try await runSerialized {
-            var decoderState = try TdtDecoderState()
-            return try await asrManager.transcribe(samples, decoderState: &decoderState)
+
+        // Transcribe to timed token spans (Vietnamese CTC or FluidAudio TDT).
+        let spans: [TokenSpan]
+        if Self.isVietnamese(language) {
+            if viCtc == nil { viCtc = try VietnameseCtcRecognizer() }
+            let vi = viCtc!
+            let tokens = try await runSerialized { try vi.transcribe(samples).tokens }
+            spans = tokens.map { TokenSpan(token: $0.token, start: $0.start, end: $0.end) }
+        } else {
+            try await ensureAsrLoaded(version: Self.modelVersion(forLanguage: language))
+            guard let asrManager = asrManager else {
+                throw NSError(domain: "FluidAudio", code: 1,
+                              userInfo: [NSLocalizedDescriptionKey: "ASR not initialized"])
+            }
+            let asr = try await runSerialized {
+                var decoderState = try TdtDecoderState()
+                return try await asrManager.transcribe(samples, decoderState: &decoderState)
+            }
+            spans = (asr.tokenTimings ?? []).map {
+                TokenSpan(token: $0.token, start: $0.startTime, end: $0.endTime)
+            }
         }
-        let timings = asr.tokenTimings ?? []
 
         let segments: [DiarizedSegment]
         if diarize {
@@ -175,9 +219,9 @@ actor FluidAudioBridge {
             let result = try await runSerialized {
                 try diarizer.performCompleteDiarization(samples, sampleRate: 16000)
             }
-            segments = bucketIntoSpeakerSegments(result.segments, timings: timings)
+            segments = bucketIntoSpeakerSegments(result.segments, spans: spans)
         } else {
-            segments = splitBySilence(timings)
+            segments = splitBySilence(spans)
         }
 
         let data = try JSONEncoder().encode(segments)
@@ -232,6 +276,7 @@ actor FluidAudioBridge {
         asrManager = nil
         models = nil
         diarizer = nil
+        viCtc = nil
         vadStates.removeAll()
     }
 
@@ -239,7 +284,7 @@ actor FluidAudioBridge {
 
     private func bucketIntoSpeakerSegments(
         _ diarSegments: [TimedSpeakerSegment],
-        timings: [TokenTiming]
+        spans: [TokenSpan]
     ) -> [DiarizedSegment] {
         let sorted = diarSegments.sorted { $0.startTimeSeconds < $1.startTimeSeconds }
         if sorted.isEmpty { return [] }
@@ -251,8 +296,8 @@ actor FluidAudioBridge {
         }
 
         var texts = [String](repeating: "", count: sorted.count)
-        for timing in timings {
-            let mid = Float((timing.startTime + timing.endTime) / 2.0)
+        for span in spans {
+            let mid = Float((span.start + span.end) / 2.0)
             var bestIdx = 0
             var bestDistance = Float.greatestFiniteMagnitude
             for (i, seg) in sorted.enumerated() {
@@ -269,7 +314,7 @@ actor FluidAudioBridge {
                     bestIdx = i
                 }
             }
-            texts[bestIdx] += timing.token
+            texts[bestIdx] += span.token
         }
 
         var out: [DiarizedSegment] = []
@@ -287,26 +332,26 @@ actor FluidAudioBridge {
     }
 
     // Group tokens into single-speaker segments, breaking on silence gaps.
-    private func splitBySilence(_ timings: [TokenTiming], gap: TimeInterval = 0.8) -> [DiarizedSegment] {
+    private func splitBySilence(_ spans: [TokenSpan], gap: TimeInterval = 0.8) -> [DiarizedSegment] {
         var out: [DiarizedSegment] = []
         var current = ""
         var start: TimeInterval = 0
         var end: TimeInterval = 0
         var lastEnd: TimeInterval = -1
 
-        for timing in timings {
-            if lastEnd >= 0 && timing.startTime - lastEnd > gap {
+        for span in spans {
+            if lastEnd >= 0 && span.start - lastEnd > gap {
                 let text = cleanText(current)
                 if !text.isEmpty {
                     out.append(DiarizedSegment(speaker: 0, start: Float(start), end: Float(end), text: text))
                 }
                 current = ""
-                start = timing.startTime
+                start = span.start
             }
-            if current.isEmpty { start = timing.startTime }
-            current += timing.token
-            end = timing.endTime
-            lastEnd = timing.endTime
+            if current.isEmpty { start = span.start }
+            current += span.token
+            end = span.end
+            lastEnd = span.end
         }
         let text = cleanText(current)
         if !text.isEmpty {
@@ -444,6 +489,14 @@ func asrVersion(forLanguage language: String?) -> AsrModelVersion {
     }
 }
 
+// Vietnamese uses a standalone CTC model, handled outside AsrModelVersion.
+func isVietnameseLang(_ language: String?) -> Bool {
+    switch language?.lowercased() {
+    case "vi", "vi-vn", "vn": return true
+    default: return false
+    }
+}
+
 // True only when the ASR model for `language` AND the shared diarizer are fully
 // cached on disk — i.e. that language is ready to transcribe offline. Uses
 // FluidAudio's version-aware `modelsExist` because per-version file names differ
@@ -451,12 +504,25 @@ func asrVersion(forLanguage language: String?) -> AsrModelVersion {
 @_cdecl("fluid_audio_model_installed")
 public func fluid_audio_model_installed(language: UnsafePointer<CChar>?) -> Bool {
     let lang = language != nil ? String(cString: language!) : nil
+    let fm = FileManager.default
+
+    // Vietnamese: standalone CTC files, not a FluidAudio version layout.
+    if isVietnameseLang(lang) {
+        guard VietnameseCtcRecognizer.installed() else { return false }
+        let diarDir = DiarizerModels.defaultModelsDirectory()
+        for name in DiarizerModels.requiredModelNames {
+            if !fm.fileExists(atPath: diarDir.appendingPathComponent(name).path) {
+                return false
+            }
+        }
+        return true
+    }
+
     let version = asrVersion(forLanguage: lang)
     let asrDir = AsrModels.defaultCacheDirectory(for: version)
     guard AsrModels.modelsExist(at: asrDir, version: version) else {
         return false
     }
-    let fm = FileManager.default
     let diarDir = DiarizerModels.defaultModelsDirectory()
     for name in DiarizerModels.requiredModelNames {
         if !fm.fileExists(atPath: diarDir.appendingPathComponent(name).path) {
@@ -760,7 +826,9 @@ public func fluid_audio_cancel_download(language: UnsafePointer<CChar>?) {
 public func fluid_audio_delete_language(language: UnsafePointer<CChar>?) -> Bool {
     let lang = language != nil ? String(cString: language!) : nil
     let fm = FileManager.default
-    let asrDir = AsrModels.defaultCacheDirectory(for: asrVersion(forLanguage: lang))
+    let asrDir = isVietnameseLang(lang)
+        ? VietnameseCtcRecognizer.modelDir()
+        : AsrModels.defaultCacheDirectory(for: asrVersion(forLanguage: lang))
     guard fm.fileExists(atPath: asrDir.path) else { return true }
     do {
         try fm.removeItem(at: asrDir)

@@ -9,14 +9,16 @@ use serde::{Deserialize, Serialize};
 pub enum MeetingLanguage {
     En,
     Ja,
+    Vi,
 }
 
 impl MeetingLanguage {
-    /// Language code passed to the ASR bridge (`"en"` / `"ja"`).
+    /// Language code passed to the ASR bridge (`"en"` / `"ja"` / `"vi"`).
     pub fn as_code(self) -> &'static str {
         match self {
             MeetingLanguage::En => "en",
             MeetingLanguage::Ja => "ja",
+            MeetingLanguage::Vi => "vi",
         }
     }
 }

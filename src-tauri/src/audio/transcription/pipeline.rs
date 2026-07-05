@@ -16,7 +16,9 @@
 
 use super::segmenter::{Segment, Segmenter};
 use super::types::{Finality, TranscriptionResult};
-use crate::audio::constants::{MIN_CHUNK_SAMPLES, SAMPLE_RATE_16KHZ, VAD_FRAME_SAMPLES};
+use crate::audio::constants::{
+    MIN_CHUNK_SAMPLES, SAMPLE_RATE_16KHZ, VAD_ENTER_THRESHOLD_VI, VAD_FRAME_SAMPLES,
+};
 use crate::audio::processing::Resampler;
 use crate::bridges::{SpeechRecognizer, Transcriber};
 use std::sync::Arc;
@@ -33,6 +35,7 @@ pub fn run<F>(
     rx: crossbeam_channel::Receiver<Vec<f32>>,
     input_sample_rate: u32,
     transcriber: Transcriber,
+    language: &str,
     on_result: F,
 ) where
     F: Fn(TranscriptionResult) + Send + Sync + 'static,
@@ -45,14 +48,25 @@ pub fn run<F>(
     }
     tracing::info!(stream = %stream_id, "Transcription pipeline started");
 
+    // Vietnamese (this model) has no punctuation, so a long monologue never hits
+    // the punctuation-based sentence split — flush-commits then become new lines
+    // instead, so the transcript doesn't grow as one endless line.
+    let split_on_flush = language.eq_ignore_ascii_case("vi");
+
     let (segment_tx, segment_rx) = mpsc::unbounded_channel::<Segment>();
     let worker = tokio::runtime::Handle::current().spawn(transcribe_worker(
         segment_rx,
         transcriber.asr.clone(),
+        split_on_flush,
         Arc::new(on_result),
     ));
 
-    let mut segmenter = Segmenter::new();
+    // Vietnamese uses a more sensitive VAD enter threshold (quieter talkers).
+    let mut segmenter = if language.eq_ignore_ascii_case("vi") {
+        Segmenter::new().with_enter_threshold(VAD_ENTER_THRESHOLD_VI)
+    } else {
+        Segmenter::new()
+    };
     let mut resampler = Resampler::new(input_sample_rate, SAMPLE_RATE_16KHZ);
     // Resampled 16kHz audio accumulates here and is scored in fixed
     // VAD_FRAME_SAMPLES windows, since the VAD truncates anything larger.
@@ -104,6 +118,7 @@ pub fn run<F>(
 async fn transcribe_worker(
     mut rx: mpsc::UnboundedReceiver<Segment>,
     asr: Arc<dyn SpeechRecognizer>,
+    split_on_flush: bool,
     on_result: ResultCallback,
 ) {
     while let Some(segment) = rx.recv().await {
@@ -131,7 +146,7 @@ async fn transcribe_worker(
                 // sentence end: promote it so a long unbroken monologue is
                 // split into sentences instead of arbitrary length-based chunks.
                 let finality = if segment.finality == Finality::Segment
-                    && ends_sentence(&text)
+                    && (ends_sentence(&text) || split_on_flush)
                 {
                     Finality::Sentence
                 } else {

@@ -15,7 +15,11 @@ import { installedLanguages } from "@/services/setup";
 import { useBoundStore } from "@/store";
 import type { MeetingLanguage } from "@/types/meeting";
 
-const SOURCE_LABEL: Record<string, string> = { en: "English", ja: "Japanese" };
+const SOURCE_LABEL: Record<string, string> = {
+  en: "English",
+  ja: "Japanese",
+  vi: "Vietnamese",
+};
 
 /**
  * Realtime translation settings. A master on/off card; the configuration below

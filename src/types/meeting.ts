@@ -21,7 +21,7 @@ export interface DiarizedSegment {
 }
 
 /** ASR language a meeting is transcribed in. */
-export type MeetingLanguage = "en" | "ja";
+export type MeetingLanguage = "en" | "ja" | "vi";
 
 export interface Meeting {
   id: string;

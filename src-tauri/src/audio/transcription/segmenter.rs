@@ -38,6 +38,9 @@ pub struct Segmenter {
     trailing_silence: usize,
     /// Buffer length at which the next streaming preview is emitted.
     next_partial_at: usize,
+    /// Voice probability to start a new utterance. Defaults to
+    /// [`VAD_ENTER_THRESHOLD`]; Vietnamese lowers it for more sensitivity.
+    enter_threshold: f32,
 }
 
 impl Default for Segmenter {
@@ -49,6 +52,7 @@ impl Default for Segmenter {
             silence_frames: 0,
             trailing_silence: 0,
             next_partial_at: MIN_CHUNK_SAMPLES,
+            enter_threshold: VAD_ENTER_THRESHOLD,
         }
     }
 }
@@ -63,6 +67,13 @@ fn take_trimmed(buf: &mut Vec<f32>, trailing: usize) -> Vec<f32> {
 impl Segmenter {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Override the voice-probability threshold that starts a new utterance
+    /// (lower = more sensitive). Used to make Vietnamese pick up quieter speech.
+    pub fn with_enter_threshold(mut self, threshold: f32) -> Self {
+        self.enter_threshold = threshold;
+        self
     }
 
     /// Feed one 16kHz chunk with its VAD voice probability.
@@ -80,7 +91,7 @@ impl Segmenter {
         let is_voice = if self.speaking {
             voice_prob > VAD_EXIT_THRESHOLD
         } else {
-            voice_prob > VAD_ENTER_THRESHOLD
+            voice_prob > self.enter_threshold
         };
 
         if is_voice {
