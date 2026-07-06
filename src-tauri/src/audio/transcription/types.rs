@@ -31,4 +31,8 @@ pub struct TranscriptionResult {
     pub duration_sec: f32,
     /// Offset (seconds) of this result's start within the recording.
     pub start_sec: f32,
+    /// Per-word time spans (absolute recording seconds). Only populated for
+    /// committed results (`Segment`/`Sentence`) — partials are superseded too
+    /// fast for word-level use.
+    pub words: Vec<crate::types::DiarizedWord>,
 }

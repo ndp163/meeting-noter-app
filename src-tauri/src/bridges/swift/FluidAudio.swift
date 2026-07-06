@@ -32,6 +32,15 @@ struct DiarizedWord: Codable {
     let end: Float
 }
 
+// A speaker turn without text — returned by the diarize-only pass used when
+// the app already holds word timings from the live transcription and skips
+// the second ASR run entirely.
+struct SpeakerSpan: Codable {
+    let speaker: Int
+    let start: Float
+    let end: Float
+}
+
 // All model managers and stream state live inside this actor. Actor isolation
 // serializes every read/write of the shared reference-typed properties
 // (asrManager/models/offlineDiarizerModels/vadManager) and the VAD state dict,
@@ -115,6 +124,13 @@ actor FluidAudioBridge {
 
     // MARK: - Transcription
 
+    // Envelope returned to Rust: the text plus per-word time spans (seconds,
+    // relative to the transcribed segment's start).
+    private struct TranscribeResponse: Codable {
+        let text: String
+        let words: [DiarizedWord]
+    }
+
     func transcribe(audioData: Data) async throws -> String {
         guard let asrManager = asrManager else {
             throw NSError(domain: "FluidAudio", code: 1,
@@ -129,7 +145,12 @@ actor FluidAudioBridge {
             var decoderState = try TdtDecoderState()
             return try await asrManager.transcribe(audioArray, decoderState: &decoderState)
         }
-        return result.text
+        let response = TranscribeResponse(
+            text: result.text,
+            words: wordsFromTokens(result.tokenTimings ?? [])
+        )
+        let data = try JSONEncoder().encode(response)
+        return String(data: data, encoding: .utf8) ?? #"{"text":"","words":[]}"#
     }
 
     // Lazily load the ASR models for `version`. Offline diarization can run when
@@ -186,9 +207,7 @@ actor FluidAudioBridge {
         let timings = asr.tokenTimings ?? []
 
         let models = try await ensureOfflineDiarizerModels()
-        var config = OfflineDiarizerConfig()
-        if numSpeakers > 0 { config.clustering.numSpeakers = numSpeakers }
-        let diarizer = OfflineDiarizerManager(config: config)
+        let diarizer = OfflineDiarizerManager(config: Self.diarizerConfig(numSpeakers: numSpeakers))
         diarizer.initialize(models: models)
         let result = try await runSerialized {
             try await diarizer.process(audio: samples) { processed, total in
@@ -201,6 +220,41 @@ actor FluidAudioBridge {
         let segments = bucketIntoSpeakerSegments(merged, timings: timings)
 
         let data = try JSONEncoder().encode(segments)
+        return String(data: data, encoding: .utf8) ?? "[]"
+    }
+
+    /// Diarize a file WITHOUT transcribing it — used when the caller already
+    /// has word timings (from the live transcription pass) and only needs the
+    /// speaker turns. Skips ASR model loading entirely, roughly halving the
+    /// cost of speaker identification. Returns speaker spans as JSON, with
+    /// cluster ids remapped to stable 0-based first-appearance indices.
+    func diarizeOnly(path: String, numSpeakers: Int, progress: ProgressSink) async throws -> String {
+        let samples = try AudioConverter().resampleAudioFile(path: path)
+
+        let models = try await ensureOfflineDiarizerModels()
+        let diarizer = OfflineDiarizerManager(config: Self.diarizerConfig(numSpeakers: numSpeakers))
+        diarizer.initialize(models: models)
+        let result = try await runSerialized {
+            try await diarizer.process(audio: samples) { processed, total in
+                progress.report(total > 0 ? Double(processed) / Double(total) : 0)
+            }
+        }
+        progress.report(1.0)
+
+        let sorted = mergeAdjacentSegments(result.segments)
+            .sorted { $0.startTimeSeconds < $1.startTimeSeconds }
+        var speakerIndex: [String: Int] = [:]
+        for seg in sorted where speakerIndex[seg.speakerId] == nil {
+            speakerIndex[seg.speakerId] = speakerIndex.count
+        }
+        let spans = sorted.map {
+            SpeakerSpan(
+                speaker: speakerIndex[$0.speakerId] ?? 0,
+                start: $0.startTimeSeconds,
+                end: $0.endTimeSeconds
+            )
+        }
+        let data = try JSONEncoder().encode(spans)
         return String(data: data, encoding: .utf8) ?? "[]"
     }
 
@@ -290,6 +344,30 @@ actor FluidAudioBridge {
     /// Slightly above the 1.0s `mergeAdjacentSegments` gap so tokens straddling
     /// a merged boundary (plus ASR timing jitter) still attach.
     private static let maxTokenAttachDistance: Float = 1.5
+
+    /// VBx clustering threshold. FluidAudio's default (0.6, the community-1
+    /// preset) merges clusters too aggressively on meeting-style audio — on
+    /// AMI-SDM it undercounts speakers on 4/16 meetings and degrades average
+    /// DER from 10.6% to 15.5%. FluidAudio's own benchmark guidance is 0.7
+    /// for exactly this kind of audio.
+    private static let clusteringThreshold = 0.7
+
+    /// Diarizer config shared by both diarize paths, with `numSpeakers > 0`
+    /// pinning the exact cluster count and `<= 0` clustering automatically.
+    /// Tuned for accuracy over speed (FluidAudio's defaults trade ~1.2pp DER
+    /// for ~2x throughput; we already saved the expensive ASR re-run):
+    /// - `stepRatio 0.1`: double-density segmentation windows for finer turn
+    ///   boundaries (library default 0.2).
+    /// - `minSegmentDuration 0`: embed even sub-second segments so short
+    ///   interjections aren't skipped (library default 1.0s).
+    private static func diarizerConfig(numSpeakers: Int) -> OfflineDiarizerConfig {
+        var config = OfflineDiarizerConfig()
+        config.clusteringThreshold = clusteringThreshold
+        config.segmentation.stepRatio = 0.1
+        config.embedding.minSegmentDurationSeconds = 0.0
+        if numSpeakers > 0 { config.clustering.numSpeakers = numSpeakers }
+        return config
+    }
 
     private func bucketIntoSpeakerSegments(
         _ diarSegments: [TimedSpeakerSegment],
@@ -465,6 +543,33 @@ public func fluid_audio_diarize_file(
         do {
             let json = try await FluidAudioBridge.shared.diarizeFile(
                 path: filePath, numSpeakers: Int(numSpeakers), language: lang, progress: sink)
+            let jsonStr = strdup(json)
+            callback(jsonStr, nil, context)
+            free(jsonStr)
+        } catch {
+            let errorStr = strdup(error.localizedDescription)
+            callback(nil, errorStr, context)
+            free(errorStr)
+        }
+    }
+}
+
+@_cdecl("fluid_audio_diarize_only")
+public func fluid_audio_diarize_only(
+    path: UnsafePointer<CChar>?,
+    numSpeakers: Int32,
+    progress: FluidProgressCallback?,
+    callback: FluidAudioCallback?,
+    context: UnsafeMutableRawPointer?
+) {
+    guard let path = path, let callback = callback else { return }
+    let filePath = String(cString: path)
+    let sink = ProgressSink(callback: progress, context: context)
+
+    Task {
+        do {
+            let json = try await FluidAudioBridge.shared.diarizeOnly(
+                path: filePath, numSpeakers: Int(numSpeakers), progress: sink)
             let jsonStr = strdup(json)
             callback(jsonStr, nil, context)
             free(jsonStr)

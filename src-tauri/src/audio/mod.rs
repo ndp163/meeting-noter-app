@@ -7,6 +7,7 @@
 //! - **streams**: Stream handlers with dual output (mixer + transcription)
 //! - **transcription**: VAD + FluidAudio integration
 
+pub mod alignment;
 pub mod capture;
 pub mod constants;
 pub mod processing;

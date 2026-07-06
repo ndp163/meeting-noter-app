@@ -6,6 +6,7 @@
 
 use anyhow::Result;
 
+use crate::audio::alignment::StreamKind;
 use crate::audio::capture::speaker::SpeakerStream;
 use crate::audio::Speaker;
 use crate::types::AudioSource;
@@ -34,6 +35,10 @@ impl AudioStreamSource for Speaker {
     
     fn to_audio_source(data: Vec<f32>) -> AudioSource {
         AudioSource::System(data)
+    }
+
+    fn stream_kind() -> StreamKind {
+        StreamKind::Speaker
     }
 }
 

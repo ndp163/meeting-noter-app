@@ -95,6 +95,14 @@ extern "C" {
         context: *mut c_void,
     );
 
+    fn fluid_audio_diarize_only(
+        path: *const c_char,
+        num_speakers: i32,
+        progress: FluidProgressCallback,
+        callback: FluidAudioCallback,
+        context: *mut c_void,
+    );
+
     fn fluid_audio_prefetch_diarizer(callback: FluidAudioCallback, context: *mut c_void);
     fn fluid_audio_model_installed(language: *const c_char) -> bool;
     fn fluid_audio_download_language(
@@ -169,6 +177,43 @@ impl FluidAudio {
                 c_path.as_ptr(),
                 num_speakers,
                 c_lang.as_ptr(),
+                diarize_progress_callback,
+                diarize_done_callback,
+                context,
+            );
+        }
+
+        rx.await
+            .map_err(|_| "Diarization callback not received".to_string())?
+    }
+
+    /// Diarize a file WITHOUT transcribing it — for meetings whose word
+    /// timings were already captured during live transcription. Returns the
+    /// speaker spans (`[{speaker, start, end}]`) as JSON; the caller buckets
+    /// its stored words into them. Skips loading the ASR models entirely.
+    pub async fn diarize_file_only<F>(
+        &self,
+        path: &str,
+        num_speakers: i32,
+        on_progress: F,
+    ) -> Result<String, String>
+    where
+        F: Fn(f64) + Send + 'static,
+    {
+        let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
+
+        let ctx = Box::new(DiarizeContext {
+            on_progress: Box::new(on_progress),
+            done: Some(tx),
+        });
+        let context = Box::into_raw(ctx) as *mut c_void;
+
+        let c_path = CString::new(path).map_err(|e| format!("Invalid path: {}", e))?;
+
+        unsafe {
+            fluid_audio_diarize_only(
+                c_path.as_ptr(),
+                num_speakers,
                 diarize_progress_callback,
                 diarize_done_callback,
                 context,
@@ -475,7 +520,7 @@ impl SpeechRecognizer for FluidAudio {
         result
     }
 
-    async fn transcribe(&self, audio: &[f32]) -> Result<String, String> {
+    async fn transcribe(&self, audio: &[f32]) -> Result<super::TranscribeOutput, String> {
         if !self.initialized.load(Ordering::Acquire) {
             return Err("FluidAudio not initialized".to_string());
         }
@@ -552,8 +597,18 @@ impl SpeechRecognizer for FluidAudio {
             );
         }
 
-        rx.await
-            .map_err(|_| "Transcription callback not received".to_string())?
+        let raw = rx
+            .await
+            .map_err(|_| "Transcription callback not received".to_string())??;
+
+        // The Swift bridge returns a JSON envelope {text, words}; a stale
+        // dylib returning plain text degrades to text-only (no word timings).
+        Ok(serde_json::from_str::<super::TranscribeOutput>(&raw).unwrap_or_else(|_| {
+            super::TranscribeOutput {
+                text: raw,
+                words: Vec::new(),
+            }
+        }))
     }
 
     fn is_initialized(&self) -> bool {

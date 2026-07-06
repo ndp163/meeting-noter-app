@@ -1,6 +1,7 @@
 use anyhow::Result;
 use serde::Serialize;
 use std::future::Future;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
@@ -8,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::audio::constants::SAMPLE_RATE_48KHZ;
 use crate::audio::{
+    alignment::{StreamAlignment, StreamKind},
     processing::mixer,
     streams::{MicStreamHandler, SpeakerStreamHandler},
     transcription::{self, TranscriptionResult},
@@ -158,9 +160,14 @@ impl AudioRecorder {
         let (audio_tx, audio_rx, mic_tx, mic_rx, speaker_tx, speaker_rx) =
             self.create_channels(sample_rate);
 
-        self.spawn_mixer(audio_rx, sample_rate, mic_rate, meeting_id, has_mic);
-        self.spawn_pipelines(mic_rx, speaker_rx, events_tx, mic_rate, sample_rate);
-        self.run_streams(has_mic, self.config.chunk_size, mic_tx, speaker_tx, audio_tx)
+        // One shared capture timeline for this session: handlers register
+        // their stream starts; the mixer (WAV padding) and the pipelines
+        // (timestamp offsets) read the same numbers.
+        let alignment = Arc::new(StreamAlignment::default());
+
+        self.spawn_mixer(audio_rx, sample_rate, mic_rate, meeting_id, has_mic, alignment.clone());
+        self.spawn_pipelines(mic_rx, speaker_rx, events_tx, mic_rate, sample_rate, alignment.clone());
+        self.run_streams(has_mic, self.config.chunk_size, mic_tx, speaker_tx, audio_tx, alignment)
             .await?;
 
         Ok(())
@@ -222,9 +229,10 @@ impl AudioRecorder {
         mic_rate: u32,
         meeting_id: Option<String>,
         has_mic: bool,
+        alignment: Arc<StreamAlignment>,
     ) {
         tokio::task::spawn_blocking(move || {
-            mixer(audio_rx, target_rate, mic_rate, meeting_id, has_mic);
+            mixer(audio_rx, target_rate, mic_rate, meeting_id, has_mic, alignment);
             tracing::debug!("Mixer task completed");
         });
     }
@@ -237,14 +245,15 @@ impl AudioRecorder {
         events_tx: Option<Sender<TranscriptionEvent>>,
         mic_rate: u32,
         speaker_rate: u32,
+        alignment: Arc<StreamAlignment>,
     ) {
         let Some(transcriber) = self.transcriber.clone() else {
             tracing::warn!("No transcription engine - audio will be recorded but not transcribed");
             return;
         };
 
-        self.spawn_pipeline(Source::Mic, transcriber.clone(), mic_rx, events_tx.clone(), mic_rate);
-        self.spawn_pipeline(Source::Speaker, transcriber, speaker_rx, events_tx, speaker_rate);
+        self.spawn_pipeline(Source::Mic, transcriber.clone(), mic_rx, events_tx.clone(), mic_rate, alignment.clone());
+        self.spawn_pipeline(Source::Speaker, transcriber, speaker_rx, events_tx, speaker_rate, alignment);
     }
 
     /// The pipeline loop is blocking (sync VAD FFI + channel reads), so it runs
@@ -259,10 +268,15 @@ impl AudioRecorder {
         rx: Receiver<Vec<f32>>,
         events_tx: Option<Sender<TranscriptionEvent>>,
         sample_rate: u32,
+        alignment: Arc<StreamAlignment>,
     ) {
+        let kind = match source {
+            Source::Mic => StreamKind::Mic,
+            Source::Speaker => StreamKind::Speaker,
+        };
         tokio::task::spawn_blocking(move || {
             tracing::info!(?source, "Transcription pipeline starting");
-            transcription::run(rx, sample_rate, transcriber, move |result| {
+            transcription::run(rx, sample_rate, transcriber, alignment, kind, move |result| {
                 if let Some(tx) = events_tx.as_ref() {
                     let _ = tx.send(TranscriptionEvent::new(source, result));
                 }
@@ -280,13 +294,15 @@ impl AudioRecorder {
         mic_tx: Sender<Vec<f32>>,
         speaker_tx: Sender<Vec<f32>>,
         audio_tx: Sender<AudioSource>,
+        alignment: Arc<StreamAlignment>,
     ) -> Result<()> {
         let speaker_cancel = self.cancel_token.clone();
         let speaker_mixer_tx = audio_tx.clone();
+        let speaker_alignment = alignment.clone();
         let speaker = run_on_thread("Speaker", move || async move {
             let speaker = Speaker::new()?;
             SpeakerStreamHandler::new(speaker, chunk_size)
-                .run(speaker_tx, speaker_mixer_tx, speaker_cancel)
+                .run(speaker_tx, speaker_mixer_tx, speaker_cancel, speaker_alignment)
                 .await
         });
 
@@ -295,7 +311,7 @@ impl AudioRecorder {
             Some(run_on_thread("Mic", move || async move {
                 let mic = Mic::new()?;
                 MicStreamHandler::new(mic, chunk_size)
-                    .run(mic_tx, audio_tx, mic_cancel)
+                    .run(mic_tx, audio_tx, mic_cancel, alignment)
                     .await
             }))
         } else {

@@ -16,6 +16,16 @@ use crate::config::EngineType;
 use async_trait::async_trait;
 use std::sync::Arc;
 
+/// One ASR pass over a segment: the text plus per-word time spans (seconds,
+/// relative to the segment's start). Engines without word timings leave
+/// `words` empty.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct TranscribeOutput {
+    pub text: String,
+    #[serde(default)]
+    pub words: Vec<crate::types::DiarizedWord>,
+}
+
 /// Turns audio samples into text.
 #[async_trait]
 pub trait SpeechRecognizer: Send + Sync {
@@ -24,7 +34,7 @@ pub trait SpeechRecognizer: Send + Sync {
     async fn initialize(&self, language: &str) -> Result<(), String>;
 
     /// Transcribe a chunk of 16kHz mono f32 samples.
-    async fn transcribe(&self, audio: &[f32]) -> Result<String, String>;
+    async fn transcribe(&self, audio: &[f32]) -> Result<TranscribeOutput, String>;
 
     fn is_initialized(&self) -> bool;
 }

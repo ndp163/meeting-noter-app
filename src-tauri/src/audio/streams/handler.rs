@@ -6,8 +6,10 @@
 use anyhow::Result;
 use crossbeam_channel::Sender;
 use futures_util::{Stream, StreamExt};
+use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
+use crate::audio::alignment::{StreamAlignment, StreamKind};
 use crate::audio::constants::CHUNK_LOG_INTERVAL;
 use crate::types::AudioSource;
 
@@ -30,6 +32,9 @@ pub trait AudioStreamSource: Sized {
     
     /// Convert audio data to AudioSource enum variant
     fn to_audio_source(data: Vec<f32>) -> AudioSource;
+
+    /// Which shared-timeline slot this stream registers under.
+    fn stream_kind() -> StreamKind;
 }
 
 /// Generic stream handler that works with any AudioStreamSource
@@ -64,12 +69,13 @@ impl<S: AudioStreamSource> GenericStreamHandler<S> {
     /// Sends audio chunks to two destinations:
     /// - mixer_tx: For immediate WAV recording (no buffering)
     /// - transcription_tx: For buffered transcription processing
-    #[tracing::instrument(skip(self, transcription_tx, mixer_tx, cancel), fields(stream = %S::display_name()))]
+    #[tracing::instrument(skip(self, transcription_tx, mixer_tx, cancel, alignment), fields(stream = %S::display_name()))]
     pub async fn run(
         self,
         transcription_tx: Sender<Vec<f32>>,
         mixer_tx: Sender<AudioSource>,
         cancel: CancellationToken,
+        alignment: Arc<StreamAlignment>,
     ) -> Result<()> {
         let name = S::display_name();
         let emoji = S::log_emoji();
@@ -90,6 +96,7 @@ impl<S: AudioStreamSource> GenericStreamHandler<S> {
         // Pre-allocate buffer to avoid reallocations
         let mut buffer = Vec::with_capacity(self.chunk_size);
         let mut chunks_sent = 0usize;
+        let mut registered = false;
 
         tracing::info!(
             stream = %name, 
@@ -104,7 +111,14 @@ impl<S: AudioStreamSource> GenericStreamHandler<S> {
                         tracing::debug!("{} {} stream ended", emoji, name);
                         break;
                     };
-                    
+
+                    // First buffer pins this stream's start on the shared
+                    // timeline (used for WAV padding and timestamp offsets).
+                    if !registered {
+                        registered = true;
+                        alignment.register(S::stream_kind(), chunk.len(), self.sample_rate);
+                    }
+
                     // Send to mixer immediately for WAV recording
                     if mixer_tx.send(S::to_audio_source(chunk.clone())).is_err() {
                         tracing::warn!("Mixer receiver dropped");
