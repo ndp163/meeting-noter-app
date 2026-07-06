@@ -1,5 +1,12 @@
 import { clsx } from "./util";
 
+/** One word of `content` with its time span (seconds) in the recording. */
+export interface MessageWord {
+  text: string;
+  start: number;
+  end: number;
+}
+
 export interface MessageProps {
   /** Speaker name / label. */
   speaker: string;
@@ -22,6 +29,13 @@ export interface MessageProps {
   active?: boolean;
   /** Text is still interim (not finalized by ASR) — rendered dimmed/italic. */
   pending?: boolean;
+  /** Word-level time spans replacing `content`'s plain rendering; each word
+   *  becomes a click-to-seek target when `onWordClick` is set. */
+  words?: MessageWord[];
+  /** Index into `words` of the word under the playhead (karaoke highlight). */
+  activeWordIndex?: number;
+  /** Per-word seek; receives the clicked word's start time (seconds). */
+  onWordClick?: (seconds: number) => void;
 }
 
 /** A single transcript line: speaker, timestamp, body. */
@@ -36,6 +50,9 @@ export const Message = ({
   onSeek,
   active,
   pending,
+  words,
+  activeWordIndex,
+  onWordClick,
 }: MessageProps) => {
   // Click anywhere on the body seeks — unless the user is selecting text to copy.
   const handleBodyClick = () => {
@@ -43,16 +60,27 @@ export const Message = ({
     if ((window.getSelection()?.toString().length ?? 0) > 0) return;
     onSeek();
   };
+  const wordLevel = Boolean(words?.length && onWordClick);
   return (
     <div
-      className={clsx("ds-msg", divided && "ds-msg--divided", active && "ds-msg--active")}
+      className={clsx(
+        "ds-msg",
+        divided && "ds-msg--divided",
+        active && "ds-msg--active",
+      )}
     >
       <div className="ds-msg__head">
-        <span className={clsx("ds-msg__speaker", isUser && "ds-msg__speaker--me")}>
+        <span
+          className={clsx("ds-msg__speaker", isUser && "ds-msg__speaker--me")}
+        >
           {speaker}
         </span>
         {onSeek ? (
-          <button className="ds-msg__ts" onClick={onSeek} title="Jump to this moment">
+          <button
+            className="ds-msg__ts"
+            onClick={onSeek}
+            title="Jump to this moment"
+          >
             {timestamp}
           </button>
         ) : (
@@ -80,7 +108,28 @@ export const Message = ({
             : undefined
         }
       >
-        {content}
+        {wordLevel
+          ? words!.map((word, i) => (
+              <span key={i}>
+                {i > 0 && " "}
+                <span
+                  className={clsx(
+                    "ds-msg__word",
+                    i === activeWordIndex && "ds-msg__word--active",
+                  )}
+                  title="Jump to this word"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if ((window.getSelection()?.toString().length ?? 0) > 0)
+                      return;
+                    onWordClick!(word.start);
+                  }}
+                >
+                  {word.text}
+                </span>
+              </span>
+            ))
+          : content}
         {partial && (
           <span className="ds-msg__interim">
             {content ? ` ${partial}` : partial}

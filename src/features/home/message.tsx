@@ -1,4 +1,4 @@
-import { Message as DSMessage } from "@/design-system";
+import { Message as DSMessage, type MessageWord } from "@/design-system";
 
 interface MessageProps {
   label: string;
@@ -10,10 +10,26 @@ interface MessageProps {
   onSeek?: () => void;
   active?: boolean;
   pending?: boolean;
+  words?: MessageWord[];
+  activeWordIndex?: number;
+  onWordClick?: (seconds: number) => void;
 }
 
 /** Transcript line — thin wrapper over the design-system Message. */
-export const Message = ({ label, timestamp, content, partial, translation, isUser, onSeek, active, pending }: MessageProps) => (
+export const Message = ({
+  label,
+  timestamp,
+  content,
+  partial,
+  translation,
+  isUser,
+  onSeek,
+  active,
+  pending,
+  words,
+  activeWordIndex,
+  onWordClick,
+}: MessageProps) => (
   <DSMessage
     speaker={label}
     timestamp={timestamp}
@@ -24,5 +40,8 @@ export const Message = ({ label, timestamp, content, partial, translation, isUse
     onSeek={onSeek}
     active={active}
     pending={pending}
+    words={words}
+    activeWordIndex={activeWordIndex}
+    onWordClick={onWordClick}
   />
 );

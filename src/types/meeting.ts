@@ -10,6 +10,10 @@ export interface TranscriptMessage {
   audioOffset?: number;
   /** Realtime translation of `content` (Apple Translation, on-device). */
   translation?: string;
+  /** Per-word time spans (absolute recording seconds) for the committed text,
+   *  enabling word-level seek. Absent on messages recorded before word
+   *  timings existed. */
+  words?: DiarizedWord[];
 }
 
 export interface DiarizedSegment {
