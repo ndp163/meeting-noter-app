@@ -25,6 +25,19 @@ struct RawSegment {
     words: Vec<DiarizedWord>,
 }
 
+/// A speaker turn without text, from the diarize-only pass (no ASR).
+#[derive(Debug, Deserialize)]
+struct RawSpan {
+    speaker: i32,
+    start: f32,
+    end: f32,
+}
+
+/// Words further than this (seconds) from every diarized span are dropped
+/// instead of glued onto the nearest one — the Rust twin of the Swift
+/// `maxTokenAttachDistance` used on the full (re-ASR) path.
+const MAX_WORD_ATTACH_DISTANCE: f32 = 1.5;
+
 /// Progress event payload for `diarization://progress`, fraction 0.0–1.0 across
 /// all tracks of one meeting.
 #[derive(Clone, Serialize)]
@@ -34,15 +47,27 @@ struct DiarizationProgress {
     fraction: f64,
 }
 
-/// Read the language the meeting was recorded with from its data.json, falling
-/// back to English so older meetings (no `language` field) keep working.
-fn meeting_language(meeting_id: &str) -> String {
+/// Read a meeting's stored data.json, if parsable (absent/corrupt → `None`).
+fn load_meeting(meeting_id: &str) -> Option<Meeting> {
     let path = paths::get_meeting_data_path(meeting_id);
     std::fs::read_to_string(&path)
         .ok()
         .and_then(|c| serde_json::from_str::<Meeting>(&c).ok())
-        .and_then(|m| m.language)
-        .unwrap_or_else(|| "en".to_string())
+}
+
+/// All stored word timings for one source stream, in chronological order.
+/// Empty for meetings recorded before word timings existed — the caller then
+/// falls back to the full (re-ASR) diarization path for that track.
+fn transcript_words(meeting: Option<&Meeting>, source: &str) -> Vec<DiarizedWord> {
+    meeting
+        .map(|m| {
+            m.transcript
+                .iter()
+                .filter(|msg| msg.source.as_deref() == Some(source))
+                .flat_map(|msg| msg.words.iter().cloned())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[command]
@@ -67,8 +92,13 @@ pub async fn diarize_meeting(
         }
     }
 
-    // Offline ASR must use the same language model the meeting was recorded with.
-    let language = meeting_language(&meeting_id);
+    // Offline ASR must use the same language model the meeting was recorded
+    // with (only needed on the fallback path that re-transcribes the file).
+    let meeting = load_meeting(&meeting_id);
+    let language = meeting
+        .as_ref()
+        .and_then(|m| m.language.clone())
+        .unwrap_or_else(|| "en".to_string());
     // Expected number of remote speakers; <= 0 lets VBx cluster automatically.
     let remote_speakers = num_speakers.map(|n| n as i32).unwrap_or(-1);
 
@@ -87,11 +117,13 @@ pub async fn diarize_meeting(
         let scale = if has_remote && has_mic { 0.5 } else { 1.0 };
 
         if has_remote {
-            let remote = run(
+            let words = transcript_words(meeting.as_ref(), "speaker");
+            let remote = diarize_track(
                 &fluid,
                 &speaker_wav,
                 remote_speakers,
                 &language,
+                words,
                 progress_emitter(&app, &meeting_id, 0.0, scale),
             )
             .await?;
@@ -109,11 +141,13 @@ pub async fn diarize_meeting(
             // The mic track is a single known speaker: pin the cluster count to
             // 1 so the diarizer only does segmentation-quality boundary work
             // (accurate speech bounds) without wasted multi-speaker clustering.
-            let mic = run(
+            let words = transcript_words(meeting.as_ref(), "mic");
+            let mic = diarize_track(
                 &fluid,
                 &mic_wav,
                 1,
                 &language,
+                words,
                 progress_emitter(&app, &meeting_id, 1.0 - scale, scale),
             )
             .await?;
@@ -149,8 +183,41 @@ pub async fn diarize_meeting(
     }
 
     segments.sort_by(|a, b| a.start.partial_cmp(&b.start).unwrap_or(std::cmp::Ordering::Equal));
+    let segments = coalesce_turns(segments);
     tracing::info!("Diarization produced {} segments", segments.len());
     Ok(segments)
+}
+
+/// Longest silent gap (seconds) bridged when coalescing consecutive
+/// same-speaker segments into one turn. Within-track merging only bridges 1s
+/// (a breath); this display-level pass joins whole sentences of the same
+/// speaker as long as nobody else spoke in between — without it the view
+/// fragments into many consecutive rows with the same label. A long silence
+/// (screen sharing, a break) still starts a new row.
+const MAX_TURN_GAP_SEC: f32 = 30.0;
+
+/// Merge consecutive segments of the SAME speaker on the final merged
+/// timeline into one conversational turn. Only neighbours in the sorted list
+/// merge, so any interjection by another speaker keeps the turns apart.
+fn coalesce_turns(segments: Vec<DiarizedSegment>) -> Vec<DiarizedSegment> {
+    let mut out: Vec<DiarizedSegment> = Vec::new();
+    for seg in segments {
+        if let Some(last) = out.last_mut() {
+            if last.speaker_id == seg.speaker_id && seg.start - last.end <= MAX_TURN_GAP_SEC {
+                last.end = last.end.max(seg.end);
+                if !seg.text.is_empty() {
+                    if !last.text.is_empty() {
+                        last.text.push(' ');
+                    }
+                    last.text.push_str(&seg.text);
+                }
+                last.words.extend(seg.words);
+                continue;
+            }
+        }
+        out.push(seg);
+    }
+    out
 }
 
 /// Whether a WAV file exists and holds any samples beyond the 44-byte header.
@@ -198,4 +265,89 @@ where
         .diarize_file(path_str, num_speakers, language, on_progress)
         .await?;
     serde_json::from_str(&json).map_err(|e| format!("Failed to parse diarization result: {}", e))
+}
+
+/// Diarize one track, reusing the live transcript's word timings when they
+/// exist: only the diarizer runs (no second ASR pass — roughly half the
+/// cost) and the stored words are attributed to the returned speaker turns.
+/// Tracks without stored words (older meetings) take the full path.
+async fn diarize_track<F>(
+    fluid: &FluidAudio,
+    path: &std::path::Path,
+    num_speakers: i32,
+    language: &str,
+    words: Vec<DiarizedWord>,
+    on_progress: F,
+) -> Result<Vec<RawSegment>, String>
+where
+    F: Fn(f64) + Send + 'static,
+{
+    if words.is_empty() {
+        return run(fluid, path, num_speakers, language, on_progress).await;
+    }
+
+    tracing::info!(path = %path.display(), words = words.len(), "Diarizing with stored transcript words (no re-ASR)");
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| "Invalid audio path".to_string())?;
+    let json = fluid
+        .diarize_file_only(path_str, num_speakers, on_progress)
+        .await?;
+    let spans: Vec<RawSpan> = serde_json::from_str(&json)
+        .map_err(|e| format!("Failed to parse diarization result: {}", e))?;
+    Ok(bucket_words(spans, words))
+}
+
+/// Attribute stored transcript words to diarized speaker spans — the Rust
+/// twin of the Swift token bucketing, but operating on already-grouped words
+/// from the live transcription (both live on the recording's shared
+/// timeline). Each word goes to the span containing its midpoint, or the
+/// nearest span within [`MAX_WORD_ATTACH_DISTANCE`]; words in regions the
+/// diarizer heard as silence are dropped rather than misattributed. Spans
+/// that end up with no words are omitted (same as the Swift path).
+fn bucket_words(spans: Vec<RawSpan>, words: Vec<DiarizedWord>) -> Vec<RawSegment> {
+    let mut texts: Vec<String> = vec![String::new(); spans.len()];
+    let mut span_words: Vec<Vec<DiarizedWord>> = vec![Vec::new(); spans.len()];
+
+    for word in words {
+        let mid = (word.start + word.end) / 2.0;
+        let mut best: Option<(usize, f32)> = None;
+        for (i, span) in spans.iter().enumerate() {
+            let distance = if mid >= span.start && mid <= span.end {
+                0.0
+            } else if mid < span.start {
+                span.start - mid
+            } else {
+                mid - span.end
+            };
+            if best.is_none_or(|(_, d)| distance < d) {
+                best = Some((i, distance));
+            }
+            if distance == 0.0 {
+                break;
+            }
+        }
+        let Some((idx, distance)) = best else { continue };
+        if distance > MAX_WORD_ATTACH_DISTANCE {
+            continue;
+        }
+        if !texts[idx].is_empty() {
+            texts[idx].push(' ');
+        }
+        texts[idx].push_str(&word.text);
+        span_words[idx].push(word);
+    }
+
+    spans
+        .into_iter()
+        .zip(texts.into_iter().zip(span_words))
+        .filter(|(_, (text, _))| !text.is_empty())
+        .map(|(span, (text, words))| RawSegment {
+            speaker: span.speaker,
+            start: span.start,
+            end: span.end,
+            text,
+            words,
+        })
+        .collect()
 }
