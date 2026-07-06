@@ -358,6 +358,20 @@
   margin: -8px -12px 0;
   padding: 8px 12px 06px;
 }
+
+/* Word-level seek targets inside a message body. The active word is the one
+   under the audio playhead (karaoke-style follow). */
+.ds-msg__word {
+  cursor: pointer;
+  border-radius: 3px;
+}
+.ds-msg__word:hover {
+  background: var(--ds-surface-2);
+}
+.ds-msg__word--active {
+  background: var(--ds-border-2);
+  color: var(--ds-text);
+}
 .ds-msg__body--seekable {
   cursor: pointer;
 }

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
-import { MeetingLanguage } from "@/types/meeting";
+import { DiarizedWord, MeetingLanguage } from "@/types/meeting";
 
 const TRANSCRIPTION_EVENT = "transcription://chunk";
 const TRANSCRIPTION_STATUS_EVENT = "transcription://status";
@@ -32,6 +32,9 @@ export interface TranscriptionEventPayload {
   is_result_final: boolean; // True for final results, false for partial/streaming
   is_sentence_final: boolean; // True when sentence is complete (start new message)
   start_sec: number; // Offset (seconds) of this result within the recording
+  /** Per-word time spans (absolute recording seconds); only on committed
+   *  results, empty for partials. */
+  words: DiarizedWord[];
 }
 
 export const startTranscription = async (
@@ -51,21 +54,21 @@ export const getTranscriptionStatus = async (): Promise<boolean> => {
 };
 
 export const listenToTranscription = async (
-  handler: (payload: TranscriptionEventPayload) => void
+  handler: (payload: TranscriptionEventPayload) => void,
 ): Promise<UnlistenFn> => {
   const unlisten = await listen<TranscriptionEventPayload>(
     TRANSCRIPTION_EVENT,
-    (event) => handler(event.payload)
+    (event) => handler(event.payload),
   );
 
   return unlisten;
 };
 
 export const listenToTranscriptionStatus = async (
-  handler: (status: TranscriptionStatus) => void
+  handler: (status: TranscriptionStatus) => void,
 ): Promise<UnlistenFn> => {
   return await listen<{ status: TranscriptionStatus }>(
     TRANSCRIPTION_STATUS_EVENT,
-    (event) => handler(event.payload.status)
+    (event) => handler(event.payload.status),
   );
 };

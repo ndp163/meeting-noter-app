@@ -79,6 +79,9 @@ pub struct TranscriptionEventPayload {
     is_result_final: bool, // True for final results, false for partial/streaming
     is_sentence_final: bool, // True when sentence is complete (start new message)
     start_sec: f32,        // Offset (seconds) of this result within the recording
+    /// Per-word time spans (absolute recording seconds); only on committed
+    /// results, empty for partials.
+    words: Vec<crate::types::DiarizedWord>,
 }
 
 impl From<&TranscriptionEvent> for TranscriptionEventPayload {
@@ -101,6 +104,7 @@ impl From<&TranscriptionEvent> for TranscriptionEventPayload {
             is_result_final,
             is_sentence_final,
             start_sec: event.result.start_sec,
+            words: event.result.words.clone(),
         }
     }
 }

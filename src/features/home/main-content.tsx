@@ -82,10 +82,12 @@ export const MainContent = ({
   const [activeId, setActiveId] = useState<string | null>(null);
   // "segIndex:wordIndex" of the diarized word under the playhead.
   const [activeWordId, setActiveWordId] = useState<string | null>(null);
+  // "messageId:wordIndex" of the transcript word under the playhead.
+  const [activeMsgWordId, setActiveMsgWordId] = useState<string | null>(null);
   const transcriptView = useBoundStore.use.transcriptView();
 
   // Map playback position → the last message that has started by then, and
-  // (on the diarization tab) the exact word under the playhead.
+  // the exact word under the playhead (transcript + diarization tabs).
   const handleTimeUpdate = (seconds: number) => {
     let id: string | null = null;
     for (const m of messages) {
@@ -108,6 +110,23 @@ export const MainContent = ({
       }
     }
     setActiveWordId((prev) => (prev === wordId ? prev : wordId));
+
+    let msgWordId: string | null = null;
+    if (activeTab === "transcript" && !isCapturing) {
+      outer: for (const m of messages) {
+        const words = m.words;
+        if (!words?.length) continue;
+        if (seconds < words[0].start || seconds > words[words.length - 1].end)
+          continue;
+        for (let wi = 0; wi < words.length; wi++) {
+          if (words[wi].start <= seconds && seconds <= words[wi].end) {
+            msgWordId = `${m.id}:${wi}`;
+            break outer;
+          }
+        }
+      }
+    }
+    setActiveMsgWordId((prev) => (prev === msgWordId ? prev : msgWordId));
   };
 
   // Keep the playing line in view as audio advances.
@@ -199,6 +218,16 @@ export const MainContent = ({
                       partial = full;
                     }
                   }
+                  // Word-level seek only applies to the finished original
+                  // transcript: while capturing there is nothing to seek in,
+                  // and the translated view has no per-word timings.
+                  const wordLevel =
+                    !isCapturing && !showTranslated && !!message.words?.length;
+                  const wordPrefix = `${message.id}:`;
+                  const activeWordIndex =
+                    wordLevel && activeMsgWordId?.startsWith(wordPrefix)
+                      ? Number(activeMsgWordId.slice(wordPrefix.length))
+                      : undefined;
                   return (
                     <div key={message.id} data-msg-id={message.id}>
                       <Message
@@ -214,6 +243,13 @@ export const MainContent = ({
                           audioPath && message.audioOffset !== undefined
                             ? () =>
                                 playerRef.current?.seek(message.audioOffset!)
+                            : undefined
+                        }
+                        words={wordLevel ? message.words : undefined}
+                        activeWordIndex={activeWordIndex}
+                        onWordClick={
+                          wordLevel && audioPath
+                            ? (seconds) => playerRef.current?.seek(seconds)
                             : undefined
                         }
                       />

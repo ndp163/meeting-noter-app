@@ -1,8 +1,9 @@
 use crossbeam_channel::Receiver;
 use hound;
 use std::io::{Seek, Write};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
 
+use crate::audio::alignment::{StreamAlignment, StreamKind};
 use crate::paths;
 use crate::types::AudioSource;
 use crate::audio::processing::Resampler;
@@ -19,13 +20,14 @@ use crate::audio::constants::{MIXER_BUFFER_CAPACITY, DEFAULT_MIC_GAIN, DEFAULT_S
 /// `has_mic` tells the mixer whether to expect a microphone source. When there
 /// is no mic, system audio is written on its own (otherwise the index-pairing
 /// below would wait forever for mic samples and produce an empty file).
-#[tracing::instrument(skip(rx), fields(meeting_id))]
+#[tracing::instrument(skip(rx, alignment), fields(meeting_id))]
 pub fn mixer(
     rx: Receiver<AudioSource>,
     target_rate: u32,
     mic_rate: u32,
     meeting_id: Option<String>,
     has_mic: bool,
+    alignment: Arc<StreamAlignment>,
 ) {
     let spec = hound::WavSpec {
         channels: 1,
@@ -100,16 +102,17 @@ pub fn mixer(
     let mic_gain = DEFAULT_MIC_GAIN;
     let sys_gain = DEFAULT_SYSTEM_GAIN;
 
-    // Shared t=0 for the two sources. The mic device and the system tap spin
-    // up at different moments, and each track file otherwise starts at its own
-    // stream's first buffer — a constant skew between mic.wav and speaker.wav.
-    // Diarization merges segment timestamps across the two files, so that skew
-    // reorders speaker turns. Whichever source delivers first defines the
-    // epoch; the later one is padded with leading silence to compensate (in
-    // its track file and its mix buffer, keeping audio.wav consistent).
-    let mut epoch: Option<Instant> = None;
+    // Shared t=0 for the two sources, measured once in the stream handlers
+    // (see `audio::alignment`). The later-starting source is padded with
+    // leading silence — in its track file and its mix buffer — so mic.wav,
+    // speaker.wav and audio.wav all live on the same timeline as the
+    // transcription timestamps. Reading the same registry the pipelines use
+    // keeps WAV time and transcript/word time from ever disagreeing.
     let mut mic_padded = !has_mic;
     let mut sys_padded = false;
+    let pad_samples = |kind: StreamKind| -> usize {
+        (f64::from(alignment.offset_sec(kind)) * f64::from(target_rate)) as usize
+    };
 
     tracing::info!(target_rate, mic_rate, mic_gain, sys_gain, has_mic, "Mixer started for WAV recording");
 
@@ -118,7 +121,7 @@ pub fn mixer(
             Ok(AudioSource::Mic(data)) => {
                 if !mic_padded {
                     mic_padded = true;
-                    let pad = alignment_pad(&mut epoch, data.len(), mic_rate, target_rate);
+                    let pad = pad_samples(StreamKind::Mic);
                     if pad > 0 {
                         tracing::info!(samples = pad, "Padding mic track to the shared start");
                         write_silence(&mut mic_writer, pad);
@@ -132,7 +135,7 @@ pub fn mixer(
             Ok(AudioSource::System(data)) => {
                 if !sys_padded {
                     sys_padded = true;
-                    let pad = alignment_pad(&mut epoch, data.len(), target_rate, target_rate);
+                    let pad = pad_samples(StreamKind::Speaker);
                     if pad > 0 {
                         tracing::info!(samples = pad, "Padding speaker track to the shared start");
                         write_silence(&mut speaker_writer, pad);
@@ -207,32 +210,6 @@ fn write_track(writer: &mut Option<TrackWriter>, data: &[f32], gain: f32) {
             if w.write_sample(to_i16(sample * gain)).is_err() {
                 return;
             }
-        }
-    }
-}
-
-/// Register a source's first buffer and return the silence samples (at
-/// `target_rate`) to prepend so its track starts at the shared epoch. The
-/// buffer's audio began `len / rate` seconds before now; whichever source
-/// arrives first defines the epoch and needs no padding. Subtracting the
-/// buffer's own duration keeps the estimate fair when the two sources deliver
-/// different first-buffer sizes.
-fn alignment_pad(
-    epoch: &mut Option<Instant>,
-    len: usize,
-    rate: u32,
-    target_rate: u32,
-) -> usize {
-    let age = Duration::from_secs_f64(len as f64 / rate.max(1) as f64);
-    let start = Instant::now().checked_sub(age).unwrap_or_else(Instant::now);
-    match epoch {
-        None => {
-            *epoch = Some(start);
-            0
-        }
-        Some(e) => {
-            let offset = start.saturating_duration_since(*e);
-            (offset.as_secs_f64() * f64::from(target_rate)) as usize
         }
     }
 }

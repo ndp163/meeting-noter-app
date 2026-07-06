@@ -16,6 +16,7 @@
 
 use super::segmenter::{Segment, Segmenter};
 use super::types::{Finality, TranscriptionResult};
+use crate::audio::alignment::{StreamAlignment, StreamKind};
 use crate::audio::constants::{MIN_CHUNK_SAMPLES, SAMPLE_RATE_16KHZ, VAD_FRAME_SAMPLES};
 use crate::audio::processing::Resampler;
 use crate::bridges::{SpeechRecognizer, Transcriber};
@@ -33,6 +34,8 @@ pub fn run<F>(
     rx: crossbeam_channel::Receiver<Vec<f32>>,
     input_sample_rate: u32,
     transcriber: Transcriber,
+    alignment: Arc<StreamAlignment>,
+    kind: StreamKind,
     on_result: F,
 ) where
     F: Fn(TranscriptionResult) + Send + Sync + 'static,
@@ -81,9 +84,12 @@ pub fn run<F>(
                 // The segment's speech ended `trailing_trimmed` samples before
                 // the current position (that tail of silence was dropped), and
                 // spans `audio.len()` back from there including pre-roll.
+                // Adding the stream's alignment offset puts the timestamp on
+                // the recording's shared timeline (matching the padded WAVs).
                 let end_sample = cumulative_samples.saturating_sub(segment.trailing_trimmed);
                 let start_sample = end_sample.saturating_sub(segment.audio.len());
-                segment.start_sec = start_sample as f32 / SAMPLE_RATE_16KHZ as f32;
+                segment.start_sec = start_sample as f32 / SAMPLE_RATE_16KHZ as f32
+                    + alignment.offset_sec(kind);
                 if segment_tx.send(segment).is_err() {
                     tracing::error!(stream = %stream_id, "Transcription worker died");
                     break 'outer;
@@ -124,8 +130,8 @@ async fn transcribe_worker(
         }
 
         match asr.transcribe(&audio).await {
-            Ok(text) if !text.trim().is_empty() => {
-                let text = text.trim().to_string();
+            Ok(out) if !out.text.trim().is_empty() => {
+                let text = out.text.trim().to_string();
                 // A mid-utterance flush (buffer/length cap, not a real pause)
                 // that happens to land on terminal punctuation is a genuine
                 // sentence end: promote it so a long unbroken monologue is
@@ -137,11 +143,27 @@ async fn transcribe_worker(
                 } else {
                     segment.finality
                 };
+                // Word timings arrive relative to this segment's audio; shift
+                // them onto the recording timeline. Partials are skipped —
+                // they're superseded within moments and never seekable.
+                let words = if finality == Finality::Partial {
+                    Vec::new()
+                } else {
+                    out.words
+                        .into_iter()
+                        .map(|mut w| {
+                            w.start += segment.start_sec;
+                            w.end += segment.start_sec;
+                            w
+                        })
+                        .collect()
+                };
                 on_result(TranscriptionResult {
                     text,
                     finality,
                     duration_sec,
                     start_sec: segment.start_sec,
+                    words,
                 });
             }
             Ok(_) => {}

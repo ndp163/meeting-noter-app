@@ -43,6 +43,11 @@ pub struct TranscriptMessage {
     pub committed_content: Option<String>,
     #[serde(default, alias = "audio_offset", skip_serializing_if = "Option::is_none")]
     pub audio_offset: Option<f32>,
+    /// Per-word time spans (absolute recording seconds) for the committed
+    /// text, enabling word-level seek. Empty for messages recorded before
+    /// word timings existed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub words: Vec<DiarizedWord>,
 }
 
 /// One speaker-attributed, transcribed segment from the offline diarization

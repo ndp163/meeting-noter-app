@@ -29,7 +29,7 @@ export { MeetingCard } from "./MeetingCard";
 export type { MeetingCardProps, MeetingSource } from "./MeetingCard";
 
 export { Message } from "./Message";
-export type { MessageProps } from "./Message";
+export type { MessageProps, MessageWord } from "./Message";
 
 export { PillToggle } from "./PillToggle";
 export type { PillToggleProps, PillOption } from "./PillToggle";

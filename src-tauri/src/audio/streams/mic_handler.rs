@@ -6,6 +6,7 @@
 
 use anyhow::Result;
 
+use crate::audio::alignment::StreamKind;
 use crate::audio::capture::mic::MicStream;
 use crate::audio::Mic;
 use crate::types::AudioSource;
@@ -34,6 +35,10 @@ impl AudioStreamSource for Mic {
     
     fn to_audio_source(data: Vec<f32>) -> AudioSource {
         AudioSource::Mic(data)
+    }
+
+    fn stream_kind() -> StreamKind {
+        StreamKind::Mic
     }
 }
 

@@ -128,6 +128,35 @@ export const DiarizationView = ({
 
   return (
     <div className="flex flex-col">
+      {/* Re-run bar: fix a wrong speaker count without leaving the results.
+          Re-running replaces the segments (and resets any renames). */}
+      {canRun && (
+        <div
+          className="flex items-center gap-3 pb-4 mb-2"
+          style={{ borderBottom: "1px solid var(--ds-border)" }}
+        >
+          <Stepper
+            aria-label="Number of speakers"
+            value={speakerCount}
+            onChange={setSpeakerCount}
+            min={1}
+            max={20}
+            placeholder="Auto"
+          />
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<RotateCcw className="w-4 h-4" />}
+            onClick={run}
+          >
+            Re-identify
+          </Button>
+          <span className="text-xs text-[var(--ds-text-2)]">
+            Wrong speaker count? Set it (besides you) and run again — renames
+            reset.
+          </span>
+        </div>
+      )}
       {segments.map((segment, index) => {
         const isYou = segment.speakerId === "you";
         const divided = index < segments.length - 1;

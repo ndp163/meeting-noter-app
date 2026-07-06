@@ -425,11 +425,19 @@ export const HomePage = () => {
           newCommittedContent = undefined;
         }
 
+        // Word timings only ship with committed results; they accumulate in
+        // step with committedContent (partials never carry words).
+        const newWords =
+          payload.is_result_final && payload.words?.length
+            ? [...(currentMsg.words ?? []), ...payload.words]
+            : currentMsg.words;
+
         updateTranscriptInMeeting(meeting.id, currentMsg.id, {
           content: newContent,
           isFinal: payload.is_result_final,
           sentenceFinal: payload.is_sentence_final,
           committedContent: newCommittedContent,
+          words: newWords,
         });
         return;
       }
@@ -760,6 +768,7 @@ const mapPayloadToMessage = (
     isFinal: payload.is_result_final,
     sentenceFinal: payload.is_sentence_final,
     audioOffset: payload.start_sec,
+    words: payload.words?.length ? payload.words : undefined,
   };
 };
 
