@@ -11,6 +11,11 @@ export const getMeetings = async (): Promise<Meeting[]> => {
 // delete blindly: recover any orphan that has data (flip it to "completed"),
 // and only discard the truly empty ones (no transcript, no audio).
 export const loadMeetings = async (): Promise<Meeting[]> => {
+  // Apply the retention setting first so expired meetings never reach the UI.
+  // Best-effort: a failed purge must not block loading.
+  await purgeExpiredMeetings().catch((e) =>
+    console.error("Failed to purge expired meetings", e),
+  );
   const meetings = await getMeetings();
   const orphans = meetings.filter((m) => m.status === "recording");
 
@@ -43,6 +48,22 @@ export const saveMeeting = async (meeting: Meeting): Promise<void> => {
 export const deleteMeeting = async (meetingId: string): Promise<void> => {
   await invoke("delete_meeting", { meetingId });
 };
+
+export const deleteMeetings = async (meetingIds: string[]): Promise<void> => {
+  await invoke("delete_meetings", { meetingIds });
+};
+
+/** Delete meetings older than the retention setting; returns removed ids. */
+export const purgeExpiredMeetings = async (): Promise<string[]> => {
+  return await invoke<string[]>("purge_expired_meetings");
+};
+
+/** Retention in days; 0 keeps meetings forever. */
+export const getRetentionDays = (): Promise<number> =>
+  invoke<number>("get_retention_days");
+
+export const setRetentionDays = (days: number): Promise<void> =>
+  invoke("set_retention_days", { days });
 
 export const getMeetingAudioPath = async (
   meetingId: string

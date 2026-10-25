@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Mic,
   Square,
@@ -10,6 +10,7 @@ import {
   Settings,
   Download,
   Check,
+  X,
 } from "lucide-react";
 import { cn, formatBytes } from "@/lib/utils";
 import { fetchModelSizes } from "@/services/setup";
@@ -18,6 +19,7 @@ import { useBoundStore } from "@/store";
 import { SIDEBAR_COLLAPSE_AT } from "@/store/ui.slice";
 import {
   Brand,
+  Button,
   CaptureButton,
   ConfirmDialog,
   IconButton,
@@ -30,7 +32,7 @@ interface SidebarProps {
   meetings: Meeting[];
   onMeetingSelect: (id: string) => void;
   onToggleCapture: () => void;
-  onDeleteMeeting: (id: string) => void;
+  onDeleteMeetings: (ids: string[]) => void;
   onRenameMeeting: (id: string, title: string) => void;
   activeMeetingId?: string;
   isCapturing: boolean;
@@ -42,7 +44,7 @@ export const Sidebar = ({
   meetings,
   onMeetingSelect,
   onToggleCapture,
-  onDeleteMeeting,
+  onDeleteMeetings,
   onRenameMeeting,
   activeMeetingId,
   isCapturing,
@@ -90,8 +92,74 @@ export const Sidebar = ({
     onToggleCapture();
   };
 
-  // Meeting queued for deletion — non-null shows the confirm dialog.
-  const [pendingDelete, setPendingDelete] = useState<Meeting | null>(null);
+  // Meetings queued for deletion — non-null shows the confirm dialog.
+  const [pendingDelete, setPendingDelete] = useState<Meeting[] | null>(null);
+
+  // Multi-select, Finder-style: hover checkbox or ⌘-click toggles, ⇧-click
+  // selects a range. While anything is selected a plain click toggles too, and
+  // a bottom bar offers bulk delete. In-progress recordings are never selectable.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const anchorId = useRef<string | null>(null);
+  const selectable = meetings.filter((m) => m.status !== "recording");
+  const isSelecting = selectedIds.size > 0;
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    anchorId.current = null;
+  };
+  const toggleSelected = (id: string) => {
+    anchorId.current = id;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const selectRange = (id: string) => {
+    const ids = selectable.map((m) => m.id);
+    const from = ids.indexOf(anchorId.current ?? activeMeetingId ?? id);
+    const to = ids.indexOf(id);
+    if (from === -1) return toggleSelected(id);
+    const [a, b] = from < to ? [from, to] : [to, from];
+    setSelectedIds(new Set(ids.slice(a, b + 1)));
+  };
+
+  const handleCardClick = (meeting: Meeting, e: ClickModifiers) => {
+    if (isSidebarCollapsed) return onMeetingSelect(meeting.id);
+    if (meeting.status === "recording") {
+      if (!isSelecting) onMeetingSelect(meeting.id);
+      return;
+    }
+    if (e.shiftKey) selectRange(meeting.id);
+    else if (e.metaKey || isSelecting) toggleSelected(meeting.id);
+    else onMeetingSelect(meeting.id);
+  };
+
+  const requestDeleteSelected = () =>
+    setPendingDelete(selectable.filter((m) => selectedIds.has(m.id)));
+
+  // Keyboard: Delete/Backspace deletes the selection, Escape clears it.
+  // Ignored while typing or while a dialog is open.
+  useEffect(() => {
+    if (!isSelecting) return;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("input, textarea, [contenteditable]")) return;
+      if (settingsOpen || pendingDelete) return;
+      if (e.key === "Escape") clearSelection();
+      else if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        requestDeleteSelected();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  // The collapsed rail has no room for selection controls.
+  useEffect(() => {
+    if (isSidebarCollapsed) clearSelection();
+  }, [isSidebarCollapsed]);
 
   // Drag the right edge to resize. Dragging narrower than SIDEBAR_COLLAPSE_AT
   // snaps to the collapsed icon rail; committed width is clamped in the store.
@@ -243,34 +311,73 @@ export const Sidebar = ({
               key={meeting.id}
               meeting={meeting}
               isActive={meeting.id === activeMeetingId}
-              onClick={() => onMeetingSelect(meeting.id)}
-              onDelete={() => setPendingDelete(meeting)}
+              onClick={(e) => handleCardClick(meeting, e)}
+              onToggleSelect={() => toggleSelected(meeting.id)}
+              onDelete={() => setPendingDelete([meeting])}
               onRename={(title) => onRenameMeeting(meeting.id, title)}
               isCollapsed={isSidebarCollapsed}
               isTitling={meeting.id === titlingMeetingId}
+              isSelecting={isSelecting}
+              isSelected={selectedIds.has(meeting.id)}
             />
           ))
         )}
       </div>
+
+      {/* Bulk actions — only while something is selected. */}
+      {isSelecting && !isSidebarCollapsed && (
+        <div className="mt-auto flex items-center justify-between gap-2 px-1 pt-2 border-t border-[var(--ds-border)]">
+          <span className="text-sm text-[var(--ds-text-2)]">
+            {selectedIds.size} selected
+          </span>
+          <div className="flex items-center gap-1">
+            <Button
+              size="sm"
+              variant="danger"
+              icon={<Trash2 className="w-3.5 h-3.5" />}
+              onClick={requestDeleteSelected}
+            >
+              Delete
+            </Button>
+            <IconButton
+              icon={<X className="w-4 h-4" />}
+              label="Clear selection"
+              onClick={clearSelection}
+            />
+          </div>
+        </div>
+      )}
 
       <SettingsModal open={settingsOpen} onClose={closeSettings} />
 
       {/* Delete confirmation — guards against accidental removal. */}
       <ConfirmDialog
         open={pendingDelete !== null}
-        title="Delete meeting?"
+        title={
+          pendingDelete && pendingDelete.length > 1
+            ? `Delete ${pendingDelete.length} meetings?`
+            : "Delete meeting?"
+        }
         message={
-          <>
-            “{pendingDelete?.title}” and its transcript will be permanently
-            deleted. This can’t be undone.
-          </>
+          pendingDelete && pendingDelete.length > 1 ? (
+            <>
+              {pendingDelete.length} meetings and their transcripts will be
+              permanently deleted. This can’t be undone.
+            </>
+          ) : (
+            <>
+              “{pendingDelete?.[0]?.title}” and its transcript will be
+              permanently deleted. This can’t be undone.
+            </>
+          )
         }
         confirmLabel="Delete"
         confirmVariant="danger"
         confirmIcon={<Trash2 className="w-4 h-4" />}
         onConfirm={() => {
-          if (pendingDelete) onDeleteMeeting(pendingDelete.id);
+          if (pendingDelete) onDeleteMeetings(pendingDelete.map((m) => m.id));
           setPendingDelete(null);
+          clearSelection();
         }}
         onCancel={() => setPendingDelete(null)}
       />
@@ -295,24 +402,34 @@ export const Sidebar = ({
   );
 };
 
+/** Modifier keys of the click (or Enter/Space) that activated a card. */
+type ClickModifiers = Pick<React.MouseEvent, "metaKey" | "shiftKey">;
+
 interface MeetingCardProps {
   meeting: Meeting;
   isActive: boolean;
-  onClick: () => void;
+  onClick: (e: ClickModifiers) => void;
+  onToggleSelect: () => void;
   onDelete: () => void;
   onRename: (title: string) => void;
   isCollapsed: boolean;
   isTitling?: boolean;
+  /** Some meeting is selected: checkboxes stay visible, rename/delete hide. */
+  isSelecting?: boolean;
+  isSelected?: boolean;
 }
 
 const MeetingCard = ({
   meeting,
   isActive,
   onClick,
+  onToggleSelect,
   onDelete,
   onRename,
   isCollapsed,
   isTitling,
+  isSelecting,
+  isSelected,
 }: MeetingCardProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState(meeting.title);
@@ -359,7 +476,7 @@ const MeetingCard = ({
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            onClick();
+            onClick(e);
           }
         }}
         className={cn(
@@ -408,7 +525,7 @@ const MeetingCard = ({
         if (isEditing) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          onClick();
+          onClick(e);
         }
       }}
       className={cn("ds-meeting group", isActive && "ds-meeting--active")}
@@ -437,17 +554,46 @@ const MeetingCard = ({
             <span className="ds-meeting__title italic">Generating title…</span>
           </div>
         ) : (
-          <div className="flex items-center gap-1.5 min-w-0">
-            <p onDoubleClick={startEditing} className="ds-meeting__title">
+          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+            {meeting.status !== "recording" && (
+              // Hover-revealed checkbox; stays visible while selecting.
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={Boolean(isSelected)}
+                aria-label={`Select ${meeting.title}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleSelect();
+                }}
+                className={cn(
+                  "flex items-center justify-center w-4 h-4 shrink-0 rounded-[4px] border transition-opacity",
+                  isSelected
+                    ? "bg-[var(--ds-accent)] border-[var(--ds-accent)] text-[var(--ds-surface)]"
+                    : "border-[var(--ds-border-2)]",
+                  isSelecting
+                    ? "opacity-100"
+                    : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+                )}
+              >
+                {isSelected && <Check className="w-3 h-3" />}
+              </button>
+            )}
+            <p
+              onDoubleClick={isSelecting ? undefined : startEditing}
+              className="ds-meeting__title"
+            >
               {meeting.title}
             </p>
-            <button
-              onClick={startEditing}
-              className="opacity-0 group-hover:opacity-100 p-1 rounded shrink-0 transition-colors hover:bg-[var(--ds-border-2)]"
-              title="Rename meeting"
-            >
-              <Pencil className="w-3.5 h-3.5 text-[var(--ds-text-2)]" />
-            </button>
+            {!isSelecting && (
+              <button
+                onClick={startEditing}
+                className="opacity-0 group-hover:opacity-100 p-1 rounded shrink-0 transition-colors hover:bg-[var(--ds-border-2)]"
+                title="Rename meeting"
+              >
+                <Pencil className="w-3.5 h-3.5 text-[var(--ds-text-2)]" />
+              </button>
+            )}
           </div>
         )}
         {meeting.status === "recording" && (
@@ -464,7 +610,7 @@ const MeetingCard = ({
             <span className="ds-src shrink-0">{meeting.platform}</span>
           )}
         </div>
-        {meeting.status !== "recording" && (
+        {meeting.status !== "recording" && !isSelecting && (
           <button
             onClick={handleDelete}
             className="opacity-0 group-hover:opacity-100 p-1 rounded shrink-0 transition-colors hover:bg-[var(--ds-border-2)]"

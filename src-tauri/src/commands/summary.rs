@@ -42,6 +42,10 @@ const TITLE_INSTRUCTIONS: &str = "Generate a short, descriptive title for this \
 meeting transcript. Maximum 6 words. Output the title text only — no quotes, \
 no markdown, no trailing punctuation, no commentary. The transcript follows on stdin.";
 
+/// Claude model for the light tasks (title + translation). The CLI alias
+/// tracks the newest Sonnet; summaries keep the user's CLI default model.
+const LIGHT_MODEL: &str = "sonnet";
+
 /// Build the translation prompt for a target language name.
 fn translate_instructions(language: &str) -> String {
     format!(
@@ -174,7 +178,7 @@ pub async fn summarize_meeting(
     };
 
     tracing::info!(use_speakers, "Summarizing meeting {}", meeting_id);
-    let summary = run_inference(&meeting_id, &instructions, &transcript, 2048).await?;
+    let summary = run_inference(&meeting_id, &instructions, &transcript, 2048, None).await?;
     if summary.is_empty() {
         return Err("The summary came back empty.".to_string());
     }
@@ -200,7 +204,7 @@ pub async fn generate_title(meeting_id: String) -> Result<String, String> {
     }
 
     tracing::info!("Generating title for meeting {}", meeting_id);
-    let title = run_inference(&meeting_id, TITLE_INSTRUCTIONS, &transcript, 64).await?;
+    let title = run_inference(&meeting_id, TITLE_INSTRUCTIONS, &transcript, 64, Some(LIGHT_MODEL)).await?;
     if title.is_empty() {
         return Err("The title came back empty.".to_string());
     }
@@ -227,7 +231,7 @@ pub async fn translate_summary(meeting_id: String, target: String) -> Result<Str
 
     let instructions = translate_instructions(target_language_name(&target));
     tracing::info!("Translating summary for meeting {} into {}", meeting_id, target);
-    let translated = run_inference(&meeting_id, &instructions, &summary, 2048).await?;
+    let translated = run_inference(&meeting_id, &instructions, &summary, 2048, Some(LIGHT_MODEL)).await?;
     if translated.is_empty() {
         return Err("The translation came back empty.".to_string());
     }
@@ -236,15 +240,17 @@ pub async fn translate_summary(meeting_id: String, target: String) -> Result<Str
 
 /// Route one inference to the configured provider. `max_tokens` caps the local
 /// model's output (ignored by the Claude CLI, which manages its own length).
+/// `model` picks the Claude model (`None` = CLI default); ignored by `local`.
 async fn run_inference(
     meeting_id: &str,
     instructions: &str,
     input: &str,
     max_tokens: i32,
+    model: Option<&str>,
 ) -> Result<String, String> {
     match crate::commands::settings::summary_provider().as_str() {
         "local" => run_local(instructions, input, max_tokens).await,
-        _ => run_claude(meeting_id, instructions, input).await,
+        _ => run_claude(meeting_id, instructions, input, model).await,
     }
 }
 
@@ -273,14 +279,23 @@ async fn run_local(instructions: &str, input: &str, max_tokens: i32) -> Result<S
 /// TCC-protected location). Claude Code scans its working directory for
 /// context on startup; left at the app's inherited cwd it can walk into
 /// ~/Pictures, ~/Documents, etc. and trip a macOS permission prompt.
-async fn run_claude(meeting_id: &str, instructions: &str, input: &str) -> Result<String, String> {
+async fn run_claude(
+    meeting_id: &str,
+    instructions: &str,
+    input: &str,
+    model: Option<&str>,
+) -> Result<String, String> {
     let bin = resolve_claude()
         .await
         .ok_or("Could not find `claude`. Install Claude Code and log in to enable summaries.")?;
 
     let work_dir = paths::get_meeting_dir(meeting_id);
 
-    let mut child = Command::new(&bin)
+    let mut cmd = Command::new(&bin);
+    if let Some(model) = model {
+        cmd.args(["--model", model]);
+    }
+    let mut child = cmd
         .arg("-p")
         .arg(instructions)
         .current_dir(&work_dir)
