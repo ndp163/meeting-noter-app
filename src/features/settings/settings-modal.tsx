@@ -1,10 +1,18 @@
-import { Captions, Globe, RefreshCw, Sparkles, Languages } from "lucide-react";
+import {
+  Captions,
+  Globe,
+  HardDrive,
+  RefreshCw,
+  Sparkles,
+  Languages,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Modal } from "@/design-system";
 import { ModelManager } from "@/features/models/model-manager";
 import { SummaryTab } from "./summary-tab";
 import { TranslateTab } from "./translate-tab";
 import { CaptionsTab } from "./captions-tab";
+import { StorageTab } from "./storage-tab";
 import { UpdatesTab } from "./updates-tab";
 import { cn } from "@/lib/utils";
 import { useBoundStore } from "@/store";
@@ -26,6 +34,7 @@ const NAV: NavItem[] = [
   { id: "summary", label: "AI summary", icon: Sparkles },
   { id: "translate", label: "Translation", icon: Languages },
   { id: "captions", label: "Captions", icon: Captions },
+  { id: "storage", label: "Storage", icon: HardDrive },
   { id: "updates", label: "Updates", icon: RefreshCw },
 ];
 
@@ -88,6 +97,8 @@ export const SettingsModal = ({ open, onClose }: SettingsModalProps) => {
             <TranslateTab />
           ) : tab === "captions" ? (
             <CaptionsTab />
+          ) : tab === "storage" ? (
+            <StorageTab />
           ) : (
             <UpdatesTab />
           )}

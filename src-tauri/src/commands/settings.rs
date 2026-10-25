@@ -99,3 +99,24 @@ pub fn set_translate_config(enabled: bool, target: String, view: String) -> Resu
     map.insert("translate_view".into(), Value::String(view));
     save(&map)
 }
+
+/// Meeting retention in days; `0` (default) keeps meetings forever. Meetings
+/// older than this are purged on app start (see `purge_expired_meetings`).
+pub fn retention_days() -> u64 {
+    load()
+        .get("retention_days")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0)
+}
+
+#[command]
+pub fn get_retention_days() -> u64 {
+    retention_days()
+}
+
+#[command]
+pub fn set_retention_days(days: u64) -> Result<(), String> {
+    let mut map = load();
+    map.insert("retention_days".into(), Value::from(days));
+    save(&map)
+}

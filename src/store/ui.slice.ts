@@ -7,6 +7,7 @@ export type SettingsTab =
   | "summary"
   | "translate"
   | "captions"
+  | "storage"
   | "updates";
 
 /** Expanded-sidebar width bounds (px). Below MIN a drag snaps to collapsed. */

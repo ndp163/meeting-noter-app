@@ -19,6 +19,7 @@ pub use mlx::{delete_local_model, download_local_model, local_model_available};
 
 pub use settings::{
     get_summary_provider, set_summary_provider, get_translate_config, set_translate_config,
+    get_retention_days, set_retention_days,
 };
 
 pub use translate::{translate_status, translate_download};
@@ -41,6 +42,8 @@ pub use meetings::{
     get_meeting_detail,
     save_meeting,
     delete_meeting,
+    delete_meetings,
+    purge_expired_meetings,
     get_meeting_audio_path,
 };
 

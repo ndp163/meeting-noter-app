@@ -3,6 +3,7 @@ use crate::types::Meeting;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::command;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -120,25 +121,65 @@ pub async fn save_meeting(meeting: Meeting) -> Result<(), String> {
     Ok(())
 }
 
+/// Remove each meeting's directory, then drop them from the index in a single
+/// write.
+fn remove_meetings(ids: &[String]) -> Result<(), String> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    for id in ids {
+        let meeting_dir = paths::get_meeting_dir(id);
+        if meeting_dir.exists() {
+            fs::remove_dir_all(&meeting_dir)
+                .map_err(|e| format!("Failed to delete meeting directory: {}", e))?;
+            tracing::info!("Deleted meeting directory: {}", meeting_dir.display());
+        }
+    }
+
+    let mut index = load_meetings_index()?;
+    index.meetings.retain(|m| !ids.contains(&m.id));
+    save_meetings_index(&index)?;
+
+    tracing::info!("Deleted {} meeting(s)", ids.len());
+    Ok(())
+}
+
 #[command]
 #[tracing::instrument]
 pub async fn delete_meeting(meeting_id: String) -> Result<(), String> {
-    let meeting_dir = paths::get_meeting_dir(&meeting_id);
+    remove_meetings(&[meeting_id])
+}
 
-    // Delete meeting directory
-    if meeting_dir.exists() {
-        fs::remove_dir_all(&meeting_dir)
-            .map_err(|e| format!("Failed to delete meeting directory: {}", e))?;
-        tracing::info!("Deleted meeting directory: {}", meeting_dir.display());
+#[command]
+#[tracing::instrument]
+pub async fn delete_meetings(meeting_ids: Vec<String>) -> Result<(), String> {
+    remove_meetings(&meeting_ids)
+}
+
+/// Delete completed meetings older than the retention setting. Returns the ids
+/// removed (empty when retention is "forever"). In-progress recordings are
+/// never touched.
+#[command]
+#[tracing::instrument]
+pub async fn purge_expired_meetings() -> Result<Vec<String>, String> {
+    let days = crate::commands::settings::retention_days();
+    if days == 0 {
+        return Ok(Vec::new());
     }
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_millis() as i64;
+    let cutoff = now_ms - (days as i64) * 86_400_000;
 
-    // Update index
-    let mut index = load_meetings_index()?;
-    index.meetings.retain(|m| m.id != meeting_id);
-    save_meetings_index(&index)?;
-
-    tracing::info!("Meeting {} deleted successfully", meeting_id);
-    Ok(())
+    let expired: Vec<String> = load_meetings_index()?
+        .meetings
+        .into_iter()
+        .filter(|m| m.status != "recording" && m.created_at < cutoff)
+        .map(|m| m.id)
+        .collect();
+    remove_meetings(&expired)?;
+    Ok(expired)
 }
 
 #[command]

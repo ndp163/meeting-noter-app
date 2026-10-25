@@ -15,7 +15,7 @@ import {
   loadMeetings,
   getMeetingDetail,
   saveMeeting,
-  deleteMeeting as deleteMeetingService,
+  deleteMeetings as deleteMeetingsService,
   getMeetingAudioPath,
   createNewMeeting,
 } from "@/services/meetings";
@@ -625,14 +625,14 @@ export const HomePage = () => {
     }
   };
 
-  const handleDeleteMeeting = async (id: string) => {
+  const handleDeleteMeetings = async (ids: string[]) => {
     try {
-      await deleteMeetingService(id);
-      deleteMeeting(id);
+      await deleteMeetingsService(ids);
+      ids.forEach((id) => deleteMeeting(id));
 
-      if (id === currentMeetingId) {
+      if (currentMeetingId && ids.includes(currentMeetingId)) {
         setAudioPath(undefined);
-        const remainingMeetings = meetings.filter((m) => m.id !== id);
+        const remainingMeetings = meetings.filter((m) => !ids.includes(m.id));
         if (remainingMeetings.length > 0) {
           setCurrentMeetingId(remainingMeetings[0].id);
         } else {
@@ -640,7 +640,7 @@ export const HomePage = () => {
         }
       }
     } catch (error) {
-      console.error("Failed to delete meeting", error);
+      console.error("Failed to delete meetings", error);
       pushToast("Couldn't delete the meeting. Please try again.", "error");
     }
   };
@@ -706,7 +706,7 @@ export const HomePage = () => {
         activeMeetingId={currentMeetingId || undefined}
         onMeetingSelect={handleMeetingSelect}
         onToggleCapture={handleCaptureToggle}
-        onDeleteMeeting={handleDeleteMeeting}
+        onDeleteMeetings={handleDeleteMeetings}
         onRenameMeeting={handleRenameMeeting}
         isCapturing={isCapturing}
         isCaptureBusy={isCaptureBusy}
