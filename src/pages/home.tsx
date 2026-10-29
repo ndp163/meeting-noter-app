@@ -90,6 +90,8 @@ export const HomePage = () => {
   const setSummaryTranslation = useBoundStore.use.setSummaryTranslation();
   const renameSpeaker = useBoundStore.use.renameSpeaker();
   const getCurrentMeeting = useBoundStore.use.getCurrentMeeting();
+  const findMeeting = (id: string) =>
+    useBoundStore.getState().meetings.find((m) => m.id === id);
   const getCapturingMeeting = useBoundStore.use.getCapturingMeeting();
   const captureLanguage = useBoundStore.use.captureLanguage();
   const openSettings = useBoundStore.use.openSettings();
@@ -119,7 +121,9 @@ export const HomePage = () => {
     try {
       const segments = await diarizeMeeting(currentMeetingId, numSpeakers);
       setDiarization(currentMeetingId, segments);
-      const meeting = getCurrentMeeting();
+      // Look up by the job's id, not the open meeting: the user may have
+      // switched meetings while the job ran.
+      const meeting = findMeeting(currentMeetingId);
       if (meeting) {
         await saveMeeting({ ...meeting, diarization: segments });
       }
@@ -150,7 +154,7 @@ export const HomePage = () => {
       }
       const summary = await summarizeMeeting(currentMeetingId, source);
       setSummary(currentMeetingId, summary);
-      const meeting = getCurrentMeeting();
+      const meeting = findMeeting(currentMeetingId);
       if (meeting) {
         await saveMeeting({ ...meeting, summary });
       }
@@ -181,7 +185,7 @@ export const HomePage = () => {
     try {
       const text = await translateSummary(currentMeetingId, translateTarget);
       setSummaryTranslation(currentMeetingId, translateTarget, text);
-      const meeting = getCurrentMeeting();
+      const meeting = findMeeting(currentMeetingId);
       if (meeting) {
         await saveMeeting({
           ...meeting,
@@ -248,27 +252,23 @@ export const HomePage = () => {
 
   // Track diarization progress for the meeting currently being processed.
   useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    onDiarizationProgress((progress) => {
+    // Keep the promise, not the resolved fn: cleanup can run before listen()
+    // resolves, and a late-assigned unlisten would then never be called.
+    const unlisten = onDiarizationProgress((progress) => {
       setDiarizationProgress(progress.fraction);
-    }).then((release) => {
-      unlisten = release;
     });
     return () => {
-      unlisten?.();
+      void unlisten.then((off) => off());
     };
   }, []);
 
   // Show a "preparing model" state while the ASR engine loads on first record.
   useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    listenToTranscriptionStatus((status) => {
+    const unlisten = listenToTranscriptionStatus((status) => {
       setIsPreparingModel(status === "preparing");
-    }).then((release) => {
-      unlisten = release;
     });
     return () => {
-      unlisten?.();
+      void unlisten.then((off) => off());
     };
   }, []);
 
@@ -365,9 +365,7 @@ export const HomePage = () => {
 
   // Listen to transcription events
   useEffect(() => {
-    let unlisten: (() => void) | null = null;
-
-    listenToTranscription((payload) => {
+    const unlisten = listenToTranscription((payload) => {
       const meeting = getCapturingMeeting();
       if (!meeting) return;
 
@@ -456,18 +454,12 @@ export const HomePage = () => {
       // sentence-finalized, or the other stream interjected)
       const newMessage = mapPayloadToMessage(payload);
       addTranscriptToMeeting(meeting.id, newMessage);
-    })
-      .then((release) => {
-        unlisten = release;
-      })
-      .catch((error) => {
-        console.error("Failed to subscribe to transcription events", error);
-      });
+    }).catch((error) => {
+      console.error("Failed to subscribe to transcription events", error);
+    });
 
     return () => {
-      if (unlisten) {
-        unlisten();
-      }
+      void unlisten.then((off) => off?.());
     };
   }, [
     currentMeetingId,
@@ -479,8 +471,7 @@ export const HomePage = () => {
 
   // Realtime translation: attach translated text to its transcript line.
   useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    listenToTranslation((payload) => {
+    const unlisten = listenToTranslation((payload) => {
       const meeting = getCapturingMeeting();
       if (!meeting) return;
       setTranslationForSegment(
@@ -489,15 +480,11 @@ export const HomePage = () => {
         payload.start_sec,
         payload.text,
       );
-    })
-      .then((release) => {
-        unlisten = release;
-      })
-      .catch((error) => {
-        console.error("Failed to subscribe to translation events", error);
-      });
+    }).catch((error) => {
+      console.error("Failed to subscribe to translation events", error);
+    });
     return () => {
-      if (unlisten) unlisten();
+      void unlisten.then((off) => off?.());
     };
   }, [getCapturingMeeting, setTranslationForSegment]);
 
@@ -653,33 +640,36 @@ export const HomePage = () => {
   // button emits `start-recording-from-alert`, and the meeting ending (mic
   // released, debounced) emits `meeting-ended`.
   useEffect(() => {
-    const unlisteners: Array<() => void> = [];
+    // This effect re-subscribes on every capture-state flip, so cleanup often
+    // runs before listen() resolves — hold the promises so none leak with a
+    // stale handleCaptureToggle closure (which would toggle recording twice).
+    const unlisteners = [
+      listen("start-recording-from-alert", () => {
+        if (!isCapturing && !isCaptureBusy) {
+          void handleCaptureToggle();
+        }
+      }),
 
-    listen("start-recording-from-alert", () => {
-      if (!isCapturing && !isCaptureBusy) {
-        void handleCaptureToggle();
-      }
-    }).then((release) => unlisteners.push(release));
+      listen("meeting-ended", () => {
+        if (isCapturing && !isCaptureBusy) {
+          void handleCaptureToggle();
+        }
+      }),
 
-    listen("meeting-ended", () => {
-      if (isCapturing && !isCaptureBusy) {
-        void handleCaptureToggle();
-      }
-    }).then((release) => unlisteners.push(release));
+      // Tray menu's Start/Stop item routes back through the same toggle.
+      listen("tray://toggle-recording", () => {
+        if (!isCaptureBusy) {
+          void handleCaptureToggle();
+        }
+      }),
 
-    // Tray menu's Start/Stop item routes back through the same toggle.
-    listen("tray://toggle-recording", () => {
-      if (!isCaptureBusy) {
-        void handleCaptureToggle();
-      }
-    }).then((release) => unlisteners.push(release));
-
-    listen("tray://settings", () => {
-      openSettings();
-    }).then((release) => unlisteners.push(release));
+      listen("tray://settings", () => {
+        openSettings();
+      }),
+    ];
 
     return () => {
-      unlisteners.forEach((u) => u());
+      unlisteners.forEach((u) => void u.then((off) => off()));
     };
   }, [isCapturing, isCaptureBusy]);
 

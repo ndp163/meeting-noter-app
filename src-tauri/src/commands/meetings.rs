@@ -56,7 +56,7 @@ fn save_meetings_index(index: &MeetingsIndex) -> Result<(), String> {
     let content = serde_json::to_string_pretty(index)
         .map_err(|e| format!("Failed to serialize index: {}", e))?;
     
-    fs::write(&index_path, &content)
+    paths::write_atomic(&index_path, content.as_bytes())
         .map_err(|e| format!("Failed to write index.json: {}", e))?;
     
     tracing::debug!("Saved meetings index with {} entries", index.meetings.len());
@@ -104,7 +104,7 @@ pub async fn save_meeting(meeting: Meeting) -> Result<(), String> {
     let content = serde_json::to_string_pretty(&meeting)
         .map_err(|e| format!("Failed to serialize meeting: {}", e))?;
     
-    fs::write(&data_path, content)
+    paths::write_atomic(&data_path, content.as_bytes())
         .map_err(|e| format!("Failed to write meeting data: {}", e))?;
 
     // Update index
