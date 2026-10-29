@@ -28,3 +28,14 @@
 .rounded-full {
   border-radius: 9999px;
 }
+
+/* In-meeting find (features/home/find-bar.tsx), painted via the CSS Custom
+ * Highlight API so DS components render untouched. */
+::highlight(find) {
+  background-color: var(--ds-accent-soft);
+  color: var(--ds-accent-ink);
+}
+::highlight(find-current) {
+  background-color: var(--ds-accent);
+  color: var(--ds-on-accent);
+}

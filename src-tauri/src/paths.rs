@@ -6,11 +6,15 @@
 //! - Missing directories
 //! - Platform-specific path handling
 
-use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::path::{Path, PathBuf};
+use std::sync::{OnceLock, RwLock};
 
 /// Cached application data directory
 static APP_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// User-chosen recordings folder (Settings › Storage). `None` = the default
+/// under the app data dir.
+static RECORDINGS_DIR_OVERRIDE: RwLock<Option<PathBuf>> = RwLock::new(None);
 
 /// Check if we're running from a macOS app bundle
 fn is_bundled_app() -> bool {
@@ -87,9 +91,90 @@ pub fn get_app_data_dir() -> &'static PathBuf {
     })
 }
 
+/// Default recordings directory, used when no custom folder is set
+pub fn default_recordings_dir() -> PathBuf {
+    get_app_data_dir().join("recordings")
+}
+
+/// Point the recordings directory at a custom folder (`None` = default)
+pub fn set_recordings_dir_override(dir: Option<PathBuf>) {
+    if let Ok(mut guard) = RECORDINGS_DIR_OVERRIDE.write() {
+        *guard = dir;
+    }
+}
+
+fn recordings_dir_override() -> Option<PathBuf> {
+    RECORDINGS_DIR_OVERRIDE.read().ok().and_then(|g| g.clone())
+}
+
 /// Get the recordings directory
 pub fn get_recordings_dir() -> PathBuf {
-    get_app_data_dir().join("recordings")
+    recordings_dir_override().unwrap_or_else(default_recordings_dir)
+}
+
+/// A custom recordings folder must already exist: never recreate it, or an
+/// unmounted external drive would silently get a stub `/Volumes/<name>/…` on
+/// the system disk.
+fn check_recordings_available() -> Result<(), std::io::Error> {
+    match recordings_dir_override() {
+        Some(dir) if !dir.is_dir() => Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!(
+                "Recordings folder {} is unavailable — is its drive connected?",
+                dir.display()
+            ),
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// Move every entry of `from` into `to` (renaming, or copy + delete across
+/// volumes). Fails up front, moving nothing, if a name already exists in `to`.
+pub fn move_dir_contents(from: &Path, to: &Path) -> std::io::Result<()> {
+    let entries = std::fs::read_dir(from)?.collect::<Result<Vec<_>, _>>()?;
+    for entry in &entries {
+        let dest = to.join(entry.file_name());
+        if dest.exists() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                format!("{} already exists", dest.display()),
+            ));
+        }
+    }
+    for entry in &entries {
+        let src = entry.path();
+        let dest = to.join(entry.file_name());
+        if std::fs::rename(&src, &dest).is_ok() {
+            continue;
+        }
+        if let Err(e) = copy_recursive(&src, &dest) {
+            let _ = if dest.is_dir() {
+                std::fs::remove_dir_all(&dest)
+            } else {
+                std::fs::remove_file(&dest)
+            };
+            return Err(e);
+        }
+        if src.is_dir() {
+            std::fs::remove_dir_all(&src)?;
+        } else {
+            std::fs::remove_file(&src)?;
+        }
+    }
+    Ok(())
+}
+
+fn copy_recursive(src: &Path, dest: &Path) -> std::io::Result<()> {
+    if src.is_dir() {
+        std::fs::create_dir(dest)?;
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            copy_recursive(&entry.path(), &dest.join(entry.file_name()))?;
+        }
+    } else {
+        std::fs::copy(src, dest)?;
+    }
+    Ok(())
 }
 
 /// Get the meeting directory for a specific meeting ID
@@ -172,6 +257,7 @@ pub fn ensure_dir(path: &PathBuf) -> Result<(), std::io::Error> {
 
 /// Ensure the recordings directory exists
 pub fn ensure_recordings_dir() -> Result<PathBuf, std::io::Error> {
+    check_recordings_available()?;
     let dir = get_recordings_dir();
     ensure_dir(&dir)?;
     Ok(dir)
@@ -179,6 +265,7 @@ pub fn ensure_recordings_dir() -> Result<PathBuf, std::io::Error> {
 
 /// Ensure a meeting directory exists
 pub fn ensure_meeting_dir(meeting_id: &str) -> Result<PathBuf, std::io::Error> {
+    check_recordings_available()?;
     let dir = get_meeting_dir(meeting_id);
     ensure_dir(&dir)?;
     Ok(dir)
@@ -207,6 +294,29 @@ mod tests {
         assert!(audio_path.ends_with("audio.wav"));
     }
     
+    #[test]
+    fn test_move_dir_contents() {
+        let root = std::env::temp_dir().join(format!("noter-move-{}", std::process::id()));
+        let (from, to) = (root.join("from"), root.join("to"));
+        std::fs::create_dir_all(from.join("meeting_a")).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        std::fs::write(from.join("index.json"), "{}").unwrap();
+        std::fs::write(from.join("meeting_a/audio.wav"), "x").unwrap();
+
+        move_dir_contents(&from, &to).unwrap();
+        assert!(to.join("index.json").is_file());
+        assert!(to.join("meeting_a/audio.wav").is_file());
+        assert_eq!(std::fs::read_dir(&from).unwrap().count(), 0);
+
+        // A name clash aborts before anything moves.
+        std::fs::write(from.join("index.json"), "{}").unwrap();
+        std::fs::write(from.join("other.txt"), "y").unwrap();
+        assert!(move_dir_contents(&from, &to).is_err());
+        assert!(from.join("other.txt").is_file());
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
     #[test]
     fn test_meeting_data_path() {
         let data_path = get_meeting_data_path("abc");

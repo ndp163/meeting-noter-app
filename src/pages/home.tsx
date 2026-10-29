@@ -94,6 +94,7 @@ export const HomePage = () => {
   const captureLanguage = useBoundStore.use.captureLanguage();
   const openSettings = useBoundStore.use.openSettings();
   const pushToast = useBoundStore.use.pushToast();
+  const storageVersion = useBoundStore.use.storageVersion();
 
   // Derived: only true when the CURRENT meeting is the one being processed.
   const isDiarizing = diarizingMeetingId === currentMeetingId;
@@ -303,7 +304,7 @@ export const HomePage = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const contentAreaRef = useRef<HTMLDivElement>(null);
 
-  // Load meetings on mount
+  // Load meetings on mount, and again when the recordings folder changes.
   useEffect(() => {
     let mounted = true;
 
@@ -312,6 +313,7 @@ export const HomePage = () => {
         const loadedMeetings = await loadMeetings();
         if (mounted) {
           setMeetings(loadedMeetings);
+          setAudioPath(undefined);
 
           // Set current meeting to the most recent one or create a new one
           if (loadedMeetings.length > 0) {
@@ -327,6 +329,8 @@ export const HomePage = () => {
                 // No audio for this meeting — leave the player empty.
               }
             }
+          } else {
+            setCurrentMeetingId(null);
           }
         }
       } catch (error) {
@@ -337,7 +341,7 @@ export const HomePage = () => {
     return () => {
       mounted = false;
     };
-  }, [setMeetings, setCurrentMeetingId]);
+  }, [setMeetings, setCurrentMeetingId, storageVersion]);
 
   // Check transcription status on mount
   useEffect(() => {
@@ -704,7 +708,11 @@ export const HomePage = () => {
       <Sidebar
         meetings={meetings}
         activeMeetingId={currentMeetingId || undefined}
-        onMeetingSelect={handleMeetingSelect}
+        onMeetingSelect={(id, fromSearch) => {
+          // Search hits are in transcripts — land where the find bar sees them.
+          if (fromSearch) setActiveTab("transcript");
+          void handleMeetingSelect(id);
+        }}
         onToggleCapture={handleCaptureToggle}
         onDeleteMeetings={handleDeleteMeetings}
         onRenameMeeting={handleRenameMeeting}

@@ -89,3 +89,26 @@ export const createNewMeeting = async (
   await saveMeeting(meeting);
   return meeting;
 };
+
+export interface RecordingsDirInfo {
+  path: string;
+  isDefault: boolean;
+}
+
+export const getRecordingsDir = (): Promise<RecordingsDirInfo> =>
+  invoke<RecordingsDirInfo>("get_recordings_dir_info");
+
+/** Native folder picker; resolves `null` when cancelled. */
+export const pickFolder = (): Promise<string | null> =>
+  invoke<string | null>("pick_folder");
+
+/** Move all meetings to `path` (`null` = back to the default folder). */
+export const setRecordingsDir = (path: string | null): Promise<void> =>
+  invoke("set_recordings_dir", { path });
+
+export const openRecordingsDir = (): Promise<void> =>
+  invoke("open_recordings_dir");
+
+/** Show the meeting's audio file selected in Finder. */
+export const revealMeetingAudio = (meetingId: string): Promise<void> =>
+  invoke("reveal_meeting_audio", { meetingId });

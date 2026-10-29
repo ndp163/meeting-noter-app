@@ -18,6 +18,7 @@ use commands::{
     show_caption_window, hide_caption_window, set_caption_click_through,
     get_meetings, get_meeting_detail, save_meeting, delete_meeting, delete_meetings,
     purge_expired_meetings, get_meeting_audio_path,
+    get_recordings_dir_info, pick_folder, set_recordings_dir, open_recordings_dir, reveal_meeting_audio,
     diarize_meeting,
     models_ready, models_manifest_url, installed_languages, download_language, delete_language,
     cancel_download_language,
@@ -41,12 +42,19 @@ pub async fn run() -> Result<()> {
     
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(RecorderState::default())
         .manage(meeting_detector::DetectorState::default())
         .setup(|app| {
+            // Apply the custom recordings folder before anything touches disk.
+            if let Some(dir) = commands::settings::recordings_dir_setting() {
+                let dir = std::path::PathBuf::from(dir);
+                commands::meetings::allow_recordings_dir(app.handle(), &dir);
+                paths::set_recordings_dir_override(Some(dir));
+            }
             meeting_detector::spawn(app.handle().clone());
             tray::setup(app)?;
             Ok(())
@@ -69,6 +77,11 @@ pub async fn run() -> Result<()> {
             delete_meetings,
             purge_expired_meetings,
             get_meeting_audio_path,
+            get_recordings_dir_info,
+            pick_folder,
+            set_recordings_dir,
+            open_recordings_dir,
+            reveal_meeting_audio,
             diarize_meeting,
             models_ready,
             models_manifest_url,

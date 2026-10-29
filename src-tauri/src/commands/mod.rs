@@ -7,7 +7,7 @@ mod setup;
 mod summary;
 mod transcription;
 mod translate;
-mod meetings;
+pub mod meetings;
 
 pub use caption::{hide_caption_window, set_caption_click_through, show_caption_window};
 
@@ -45,5 +45,10 @@ pub use meetings::{
     delete_meetings,
     purge_expired_meetings,
     get_meeting_audio_path,
+    get_recordings_dir_info,
+    pick_folder,
+    set_recordings_dir,
+    open_recordings_dir,
+    reveal_meeting_audio,
 };
 

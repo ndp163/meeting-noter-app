@@ -120,3 +120,20 @@ pub fn set_retention_days(days: u64) -> Result<(), String> {
     map.insert("retention_days".into(), Value::from(days));
     save(&map)
 }
+
+/// Custom recordings folder; `None` = default under the app data dir.
+pub fn recordings_dir_setting() -> Option<String> {
+    load()
+        .get("recordings_dir")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+}
+
+pub fn set_recordings_dir_setting(dir: Option<&str>) -> Result<(), String> {
+    let mut map = load();
+    match dir {
+        Some(d) => map.insert("recordings_dir".into(), Value::String(d.into())),
+        None => map.remove("recordings_dir"),
+    };
+    save(&map)
+}
