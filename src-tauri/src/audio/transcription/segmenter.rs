@@ -158,6 +158,23 @@ impl Segmenter {
 
         segments
     }
+
+    /// End of stream: emit any speech still buffered as a final
+    /// [`Finality::Sentence`], so words spoken right before Stop aren't lost.
+    pub fn finish(&mut self) -> Option<Segment> {
+        if !self.speaking {
+            return None;
+        }
+        self.speaking = false;
+        let trimmed = std::mem::take(&mut self.trailing_silence);
+        let audio = take_trimmed(&mut self.buffer, trimmed);
+        (!audio.is_empty()).then_some(Segment {
+            audio,
+            finality: Finality::Sentence,
+            trailing_trimmed: trimmed,
+            start_sec: 0.0,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -251,5 +268,24 @@ mod tests {
             }
         }
         assert!(sentence.is_some(), "expected a Sentence segment after silence");
+    }
+
+    #[test]
+    fn finish_flushes_in_progress_speech_as_sentence() {
+        let mut seg = Segmenter::new();
+        seg.push(VOICE, &vec![0.1; MIN_CHUNK_SAMPLES / 2]);
+        seg.push(SILENCE, &[0.0; 100]);
+
+        let out = seg.finish().expect("speech in progress must be flushed on finish");
+        assert_eq!(out.finality, Finality::Sentence);
+        assert_eq!(out.audio.len(), MIN_CHUNK_SAMPLES / 2, "trailing silence not trimmed");
+        assert_eq!(out.trailing_trimmed, 100);
+    }
+
+    #[test]
+    fn finish_is_empty_when_idle() {
+        let mut seg = Segmenter::new();
+        seg.push(SILENCE, &vec![0.7; 4000]);
+        assert!(seg.finish().is_none(), "pre-roll alone is not speech");
     }
 }

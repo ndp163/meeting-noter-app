@@ -64,6 +64,17 @@ pub fn run<F>(
     // in the recording. Used to stamp each segment's start offset.
     let mut cumulative_samples: usize = 0;
 
+    // The segment's speech ended `trailing_trimmed` samples before the current
+    // position (that tail of silence was dropped), and spans `audio.len()` back
+    // from there including pre-roll. Adding the stream's alignment offset puts
+    // the timestamp on the recording's shared timeline (matching the padded WAVs).
+    let stamp = |segment: &mut Segment, cumulative_samples: usize| {
+        let end_sample = cumulative_samples.saturating_sub(segment.trailing_trimmed);
+        let start_sample = end_sample.saturating_sub(segment.audio.len());
+        segment.start_sec =
+            start_sample as f32 / SAMPLE_RATE_16KHZ as f32 + alignment.offset_sec(kind);
+    };
+
     'outer: while let Ok(chunk) = rx.recv() {
         frame_buf.extend(resampler.process(&chunk));
 
@@ -81,21 +92,21 @@ pub fn run<F>(
             cumulative_samples += frame.len();
 
             for mut segment in segmenter.push(voice_prob, &frame) {
-                // The segment's speech ended `trailing_trimmed` samples before
-                // the current position (that tail of silence was dropped), and
-                // spans `audio.len()` back from there including pre-roll.
-                // Adding the stream's alignment offset puts the timestamp on
-                // the recording's shared timeline (matching the padded WAVs).
-                let end_sample = cumulative_samples.saturating_sub(segment.trailing_trimmed);
-                let start_sample = end_sample.saturating_sub(segment.audio.len());
-                segment.start_sec = start_sample as f32 / SAMPLE_RATE_16KHZ as f32
-                    + alignment.offset_sec(kind);
+                stamp(&mut segment, cumulative_samples);
                 if segment_tx.send(segment).is_err() {
                     tracing::error!(stream = %stream_id, "Transcription worker died");
                     break 'outer;
                 }
             }
         }
+    }
+
+    // Speech still in progress when capture stopped. The worker transcribes
+    // it before exiting, and stop waits for the events channel to close, so
+    // this line lands before the frontend saves the meeting.
+    if let Some(mut segment) = segmenter.finish() {
+        stamp(&mut segment, cumulative_samples);
+        let _ = segment_tx.send(segment);
     }
 
     // Closing the channel lets the worker drain queued segments and exit.

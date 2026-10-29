@@ -41,6 +41,8 @@ import { friendlyError } from "@/lib/utils";
 import type { TranscriptMessage } from "@/types/meeting";
 import type { MainTab } from "@/features/home/main-content";
 
+const TRANSCRIPT_AUTOSAVE_MS = 10_000;
+
 export const HomePage = () => {
   const [activeTab, setActiveTab] = useState<MainTab>("transcript");
   const [isCapturing, setIsCapturing] = useState(false);
@@ -469,6 +471,24 @@ export const HomePage = () => {
     closeTranscriptMessage,
   ]);
 
+  // Persist the live transcript while recording, so a crash or force-quit
+  // mid-meeting keeps it (orphan recovery on next launch restores it).
+  // Skips when nothing changed: immer gives `transcript` a new array per edit.
+  const autosaveRef = useRef<Promise<void>>(Promise.resolve());
+  useEffect(() => {
+    if (!isCapturing) return;
+    let lastSaved: TranscriptMessage[] | undefined;
+    const timer = setInterval(() => {
+      const meeting = getCapturingMeeting();
+      if (!meeting || meeting.transcript === lastSaved) return;
+      lastSaved = meeting.transcript;
+      autosaveRef.current = saveMeeting(meeting).catch((error) => {
+        console.error("Transcript autosave failed", error);
+      });
+    }, TRANSCRIPT_AUTOSAVE_MS);
+    return () => clearInterval(timer);
+  }, [isCapturing, getCapturingMeeting]);
+
   // Realtime translation: attach translated text to its transcript line.
   useEffect(() => {
     const unlisten = listenToTranslation((payload) => {
@@ -533,6 +553,9 @@ export const HomePage = () => {
           const meeting = getCapturingMeeting();
           updateMeeting(currentMeetingId, { status: "completed" });
           if (meeting) {
+            // An in-flight autosave of the "recording" snapshot must not land
+            // after (and clobber) this final save.
+            await autosaveRef.current;
             await saveMeeting({ ...meeting, status: "completed" });
             const path = await getMeetingAudioPath(meeting.id);
             setAudioPath(path);
