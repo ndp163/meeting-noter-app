@@ -9,6 +9,10 @@ use crate::types::AudioSource;
 use crate::audio::processing::Resampler;
 use crate::audio::constants::{MIXER_BUFFER_CAPACITY, DEFAULT_MIC_GAIN, DEFAULT_SYSTEM_GAIN};
 
+/// How far one source may run ahead of the other before the lagging one is
+/// treated as stalled. Well above normal chunk jitter.
+const MAX_SOURCE_LAG_SECS: u32 = 2;
+
 /// Mix microphone and system audio streams and write to WAV file.
 ///
 /// `target_rate` is the WAV's sample rate; mic and system audio are resampled
@@ -101,6 +105,7 @@ pub fn mixer(
 
     let mic_gain = DEFAULT_MIC_GAIN;
     let sys_gain = DEFAULT_SYSTEM_GAIN;
+    let max_lag = (MAX_SOURCE_LAG_SECS * target_rate) as usize;
 
     // Shared t=0 for the two sources, measured once in the stream handlers
     // (see `audio::alignment`). The later-starting source is padded with
@@ -152,7 +157,20 @@ pub fn mixer(
         }
 
         let result = if has_mic {
-            write_mixed(&mut writer, &mut mic_buf, &mut sys_buf, mic_gain, sys_gain)
+            // After pairing, at most one buffer is non-empty. If it has run
+            // far ahead, the other source has stalled (mic unplugged, device
+            // switched): write the lead out against silence instead of
+            // buffering it forever, which would freeze audio.wav and grow RAM.
+            // Only once both have started: a slow-starting source (e.g. a
+            // Bluetooth mic) is lined up by the start padding above instead.
+            let started = mic_padded && sys_padded;
+            write_mixed(&mut writer, &mut mic_buf, &mut sys_buf, mic_gain, sys_gain).and_then(|_| {
+                if !started {
+                    return Ok(());
+                }
+                drain_stalled(&mut writer, &mut mic_buf, mic_gain, &mut speaker_writer, max_lag)?;
+                drain_stalled(&mut writer, &mut sys_buf, sys_gain, &mut mic_writer, max_lag)
+            })
         } else {
             write_mono(&mut writer, &mut sys_buf, sys_gain)
         };
@@ -243,6 +261,23 @@ fn write_mixed<W: Write + Seek>(
     Ok(())
 }
 
+/// If `lead` holds more than `max_lag` unpaired samples, the other source has
+/// stalled: write `lead` out mixed against silence, and pad the stalled
+/// source's own track by the same amount so it stays on the shared timeline.
+fn drain_stalled<W: Write + Seek>(
+    writer: &mut hound::WavWriter<W>,
+    lead: &mut Vec<f32>,
+    gain: f32,
+    stalled_track: &mut Option<TrackWriter>,
+    max_lag: usize,
+) -> Result<(), hound::Error> {
+    if lead.len() <= max_lag {
+        return Ok(());
+    }
+    write_silence(stalled_track, lead.len());
+    write_mono(writer, lead, gain)
+}
+
 /// Write a single buffer (gain-applied) and clear it.
 fn write_mono<W: Write + Seek>(
     writer: &mut hound::WavWriter<W>,
@@ -259,4 +294,43 @@ fn write_mono<W: Write + Seek>(
 #[inline]
 fn to_i16(sample: f32) -> i16 {
     (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn wav_writer() -> hound::WavWriter<std::io::Cursor<Vec<u8>>> {
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 16_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        hound::WavWriter::new(std::io::Cursor::new(Vec::new()), spec).unwrap()
+    }
+
+    #[test]
+    fn stalled_source_does_not_hold_back_the_mix() {
+        let mut writer = wav_writer();
+        let mut mic_buf = Vec::new(); // mic died: nothing arrives
+        let mut sys_buf = vec![0.5; 5_000];
+
+        write_mixed(&mut writer, &mut mic_buf, &mut sys_buf, 1.0, 1.0).unwrap();
+        drain_stalled(&mut writer, &mut sys_buf, 1.0, &mut None, 4_000).unwrap();
+
+        assert!(sys_buf.is_empty(), "lead past the lag cap must be written out");
+        assert_eq!(writer.len(), 5_000);
+    }
+
+    #[test]
+    fn normal_jitter_waits_for_the_other_source() {
+        let mut writer = wav_writer();
+        let mut sys_buf = vec![0.5; 3_000];
+
+        drain_stalled(&mut writer, &mut sys_buf, 1.0, &mut None, 4_000).unwrap();
+
+        assert_eq!(sys_buf.len(), 3_000, "within the cap, keep buffering to pair");
+        assert_eq!(writer.len(), 0);
+    }
 }
