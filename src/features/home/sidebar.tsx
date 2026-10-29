@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Mic,
   Square,
@@ -11,9 +18,12 @@ import {
   Download,
   Check,
   X,
+  Search,
+  FolderOpen,
 } from "lucide-react";
 import { cn, formatBytes } from "@/lib/utils";
 import { fetchModelSizes } from "@/services/setup";
+import { revealMeetingAudio } from "@/services/meetings";
 import type { Meeting, MeetingLanguage } from "@/types/meeting";
 import { useBoundStore } from "@/store";
 import { SIDEBAR_COLLAPSE_AT } from "@/store/ui.slice";
@@ -27,10 +37,12 @@ import {
 } from "@/design-system";
 import { SettingsModal } from "@/features/settings/settings-modal";
 import { LANGUAGES, languageInfo } from "@/lib/languages";
+import { searchMeetings, type MeetingHit } from "@/lib/search";
 
 interface SidebarProps {
   meetings: Meeting[];
-  onMeetingSelect: (id: string) => void;
+  /** `fromSearch`: picked from search results — open on the transcript. */
+  onMeetingSelect: (id: string, fromSearch?: boolean) => void;
   onToggleCapture: () => void;
   onDeleteMeetings: (ids: string[]) => void;
   onRenameMeeting: (id: string, title: string) => void;
@@ -64,6 +76,19 @@ export const Sidebar = ({
   const settingsOpen = useBoundStore.use.settingsOpen();
   const openSettings = useBoundStore.use.openSettings();
   const closeSettings = useBoundStore.use.closeSettings();
+  const searchQuery = useBoundStore.use.searchQuery();
+  const setSearchQuery = useBoundStore.use.setSearchQuery();
+  const setFindQuery = useBoundStore.use.setFindQuery();
+  const pushToast = useBoundStore.use.pushToast();
+
+  // Search runs on a deferred query so typing stays responsive on big
+  // libraries. The collapsed rail has no search box, so it shows everything.
+  const deferredQuery = useDeferredValue(searchQuery);
+  const activeQuery = isSidebarCollapsed ? "" : deferredQuery.trim();
+  const hits = useMemo(
+    () => searchMeetings(meetings, activeQuery),
+    [meetings, activeQuery],
+  );
 
   useEffect(() => {
     void refreshInstalledLanguages();
@@ -100,7 +125,9 @@ export const Sidebar = ({
   // a bottom bar offers bulk delete. In-progress recordings are never selectable.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const anchorId = useRef<string | null>(null);
-  const selectable = meetings.filter((m) => m.status !== "recording");
+  const selectable = hits
+    .map((h) => h.meeting)
+    .filter((m) => m.status !== "recording");
   const isSelecting = selectedIds.size > 0;
   const clearSelection = () => {
     setSelectedIds(new Set());
@@ -132,7 +159,11 @@ export const Sidebar = ({
     }
     if (e.shiftKey) selectRange(meeting.id);
     else if (e.metaKey || isSelecting) toggleSelected(meeting.id);
-    else onMeetingSelect(meeting.id);
+    else if (activeQuery) {
+      // Carry the query into the meeting's find bar.
+      setFindQuery(activeQuery);
+      onMeetingSelect(meeting.id, true);
+    } else onMeetingSelect(meeting.id);
   };
 
   const requestDeleteSelected = () =>
@@ -299,21 +330,59 @@ export const Sidebar = ({
         </div>
       )}
 
+      {/* Search across all transcripts */}
+      {!isSidebarCollapsed && meetings.length > 0 && (
+        <label className="flex items-center gap-2 h-9 px-2.5 mx-1 shrink-0 rounded-[var(--ds-radius-sm)] border border-[var(--ds-border)] bg-[var(--ds-surface-2)] focus-within:border-[var(--ds-border-2)]">
+          <Search className="w-4 h-4 shrink-0 text-[var(--ds-text-3)]" />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setSearchQuery("");
+            }}
+            placeholder="Search transcripts"
+            aria-label="Search transcripts"
+            className="flex-1 min-w-0 text-sm bg-transparent outline-none text-[var(--ds-text)] placeholder:text-[var(--ds-text-3)] [&::-webkit-search-cancel-button]:hidden"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              aria-label="Clear search"
+              className="shrink-0 text-[var(--ds-text-3)] hover:text-[var(--ds-text)]"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </label>
+      )}
+
       {/* Meetings List */}
       <div className="flex flex-col gap-1 overflow-y-auto px-1">
         {!isSidebarCollapsed && meetings.length === 0 ? (
           <div className="text-center text-[var(--ds-text-2)] text-sm p-4">
             No meetings yet. Press Start Capture to create one.
           </div>
+        ) : activeQuery && hits.length === 0 ? (
+          <div className="text-center text-[var(--ds-text-2)] text-sm p-4">
+            No transcripts match “{activeQuery}”.
+          </div>
         ) : (
-          meetings.map((meeting) => (
+          hits.map(({ meeting, ...hit }) => (
             <MeetingCard
               key={meeting.id}
               meeting={meeting}
+              hit={activeQuery ? hit : undefined}
               isActive={meeting.id === activeMeetingId}
               onClick={(e) => handleCardClick(meeting, e)}
               onToggleSelect={() => toggleSelected(meeting.id)}
               onDelete={() => setPendingDelete([meeting])}
+              onReveal={() =>
+                revealMeetingAudio(meeting.id).catch((e) =>
+                  pushToast(String(e), "error"),
+                )
+              }
               onRename={(title) => onRenameMeeting(meeting.id, title)}
               isCollapsed={isSidebarCollapsed}
               isTitling={meeting.id === titlingMeetingId}
@@ -411,12 +480,16 @@ interface MeetingCardProps {
   onClick: (e: ClickModifiers) => void;
   onToggleSelect: () => void;
   onDelete: () => void;
+  /** Show the meeting's audio file in Finder. */
+  onReveal: () => void;
   onRename: (title: string) => void;
   isCollapsed: boolean;
   isTitling?: boolean;
   /** Some meeting is selected: checkboxes stay visible, rename/delete hide. */
   isSelecting?: boolean;
   isSelected?: boolean;
+  /** Search match info while the sidebar search is active. */
+  hit?: Omit<MeetingHit, "meeting">;
 }
 
 const MeetingCard = ({
@@ -425,11 +498,13 @@ const MeetingCard = ({
   onClick,
   onToggleSelect,
   onDelete,
+  onReveal,
   onRename,
   isCollapsed,
   isTitling,
   isSelecting,
   isSelected,
+  hit,
 }: MeetingCardProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState(meeting.title);
@@ -463,6 +538,11 @@ const MeetingCard = ({
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
     onDelete();
+  };
+
+  const handleReveal = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onReveal();
   };
 
   if (isCollapsed) {
@@ -611,15 +691,36 @@ const MeetingCard = ({
           )}
         </div>
         {meeting.status !== "recording" && !isSelecting && (
-          <button
-            onClick={handleDelete}
-            className="opacity-0 group-hover:opacity-100 p-1 rounded shrink-0 transition-colors hover:bg-[var(--ds-border-2)]"
-            title="Delete meeting"
-          >
-            <Trash2 className="w-4 h-4 text-[var(--ds-rec)]" />
-          </button>
+          <div className="flex items-center shrink-0">
+            <button
+              onClick={handleReveal}
+              className="opacity-0 group-hover:opacity-100 p-1 rounded shrink-0 transition-colors hover:bg-[var(--ds-border-2)]"
+              title="Show audio in Finder"
+            >
+              <FolderOpen className="w-4 h-4 text-[var(--ds-text-2)]" />
+            </button>
+            <button
+              onClick={handleDelete}
+              className="opacity-0 group-hover:opacity-100 p-1 rounded shrink-0 transition-colors hover:bg-[var(--ds-border-2)]"
+              title="Delete meeting"
+            >
+              <Trash2 className="w-4 h-4 text-[var(--ds-rec)]" />
+            </button>
+          </div>
         )}
       </div>
+      {hit?.snippet && (
+        <p className="text-xs text-[var(--ds-text-2)] line-clamp-2 break-words">
+          {hit.snippet.before}
+          <span className="font-medium text-[var(--ds-accent-ink)] bg-[var(--ds-accent-soft)] rounded-[3px]">
+            {hit.snippet.match}
+          </span>
+          {hit.snippet.after}
+          {hit.count > 1 && (
+            <span className="text-[var(--ds-text-3)]"> · {hit.count} matches</span>
+          )}
+        </p>
+      )}
     </div>
   );
 };

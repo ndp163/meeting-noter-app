@@ -50,6 +50,12 @@ export interface UISlice {
   transcriptView: TranscriptView;
   /** Whether the live-caption overlay shows during recording; persisted. */
   captionEnabled: boolean;
+  /** Sidebar search across all meetings' transcripts. */
+  searchQuery: string;
+  /** In-meeting find bar query; `null` while the bar is closed. */
+  findQuery: string | null;
+  /** Bumped when the recordings folder changes, so meetings are reloaded. */
+  storageVersion: number;
 
   // Actions
   toggleSidebar: () => void;
@@ -62,6 +68,9 @@ export interface UISlice {
   setSettingsTab: (tab: SettingsTab) => void;
   setTranscriptView: (view: TranscriptView) => void;
   setCaptionEnabled: (enabled: boolean) => void;
+  setSearchQuery: (query: string) => void;
+  setFindQuery: (query: string | null) => void;
+  bumpStorageVersion: () => void;
 }
 
 export const createUISlice: StateCreator<UISlice, [], [], UISlice> = immer(
@@ -74,6 +83,9 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = immer(
     settingsTab: "models",
     transcriptView: "both",
     captionEnabled: readCaptionEnabled(),
+    searchQuery: "",
+    findQuery: null,
+    storageVersion: 0,
 
     toggleSidebar: () =>
       set((state) => {
@@ -128,6 +140,21 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = immer(
       set((state) => {
         state.captionEnabled = enabled;
         localStorage.setItem(CAPTION_KEY, String(enabled));
+      }),
+
+    setSearchQuery: (query) =>
+      set((state) => {
+        state.searchQuery = query;
+      }),
+
+    setFindQuery: (query) =>
+      set((state) => {
+        state.findQuery = query;
+      }),
+
+    bumpStorageVersion: () =>
+      set((state) => {
+        state.storageVersion += 1;
       }),
   }),
 ) as StateCreator<UISlice, [], [], UISlice>;

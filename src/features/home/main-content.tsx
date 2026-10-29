@@ -1,6 +1,6 @@
 import { Ref, useEffect, useRef, useState } from "react";
-import { Loader2, Mic, MessageSquareText } from "lucide-react";
-import { Tabs, StatusDot } from "@/design-system";
+import { Loader2, Mic, MessageSquareText, Search } from "lucide-react";
+import { IconButton, Tabs, StatusDot } from "@/design-system";
 import { useBoundStore } from "@/store";
 import { Message } from "@/features/home/message";
 import {
@@ -9,6 +9,7 @@ import {
 } from "@/features/home/audio-player";
 import { DiarizationView } from "@/features/home/diarization-view";
 import { SummaryView } from "@/features/home/summary-view";
+import { FindBar } from "@/features/home/find-bar";
 import type { TranscriptMessage, DiarizedSegment } from "@/types/meeting";
 import type { SummaryProvider, SummarySource } from "@/services/summary";
 
@@ -85,6 +86,8 @@ export const MainContent = ({
   // "messageId:wordIndex" of the transcript word under the playhead.
   const [activeMsgWordId, setActiveMsgWordId] = useState<string | null>(null);
   const transcriptView = useBoundStore.use.transcriptView();
+  const setFindQuery = useBoundStore.use.setFindQuery();
+  const findRootRef = useRef<HTMLDivElement>(null);
 
   // Map playback position → the last message that has started by then, and
   // the exact word under the playhead (transcript + diarization tabs).
@@ -160,7 +163,16 @@ export const MainContent = ({
           value={activeTab}
           onChange={(id) => setActiveTab(id as MainTab)}
         />
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-1">
+          {currentMeetingId && (
+            <IconButton
+              icon={<Search className="w-4 h-4" />}
+              label="Find in meeting (⌘F)"
+              onClick={() =>
+                setFindQuery(useBoundStore.getState().findQuery ?? "")
+              }
+            />
+          )}
           <StatusDot
             tone={isCapturing ? "rec" : "idle"}
             pulse={isPreparingModel || isCapturing}
@@ -175,9 +187,14 @@ export const MainContent = ({
         </div>
       </div>
 
+      <FindBar
+        containerRef={findRootRef}
+        scopeKey={`${currentMeetingId}:${activeTab}`}
+      />
+
       {/* Content Area */}
       <div ref={contentAreaRef} className="ds-card flex-1 p-5 overflow-y-auto">
-        <div className="flex flex-col gap-5">
+        <div ref={findRootRef} className="flex flex-col gap-5">
           {activeTab === "transcript" ? (
             messages.length > 0 ? (
               <div
