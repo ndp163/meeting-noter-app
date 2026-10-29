@@ -20,7 +20,8 @@ fn load() -> Map<String, Value> {
 
 fn save(map: &Map<String, Value>) -> Result<(), String> {
     let json = serde_json::to_string_pretty(map).map_err(|e| e.to_string())?;
-    std::fs::write(settings_path(), json).map_err(|e| format!("write settings: {e}"))
+    crate::paths::write_atomic(&settings_path(), json.as_bytes())
+        .map_err(|e| format!("write settings: {e}"))
 }
 
 /// The configured summary provider, defaulting to `"claude"`.

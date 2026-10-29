@@ -131,7 +131,9 @@ fn check_recordings_available() -> Result<(), std::io::Error> {
 /// Move every entry of `from` into `to` (renaming, or copy + delete across
 /// volumes). Fails up front, moving nothing, if a name already exists in `to`.
 pub fn move_dir_contents(from: &Path, to: &Path) -> std::io::Result<()> {
-    let entries = std::fs::read_dir(from)?.collect::<Result<Vec<_>, _>>()?;
+    let entries = std::fs::read_dir(from)?
+        .filter(|e| !matches!(e, Ok(e) if e.file_name() == ".DS_Store"))
+        .collect::<Result<Vec<_>, _>>()?;
     for entry in &entries {
         let dest = to.join(entry.file_name());
         if dest.exists() {
@@ -178,8 +180,30 @@ fn copy_recursive(src: &Path, dest: &Path) -> std::io::Result<()> {
 }
 
 /// Get the meeting directory for a specific meeting ID
+///
+/// Ids arrive from the webview, so anything outside a UUID's alphabet is
+/// replaced: `../..` must never resolve outside the recordings folder (callers
+/// `remove_dir_all` this path).
 pub fn get_meeting_dir(meeting_id: &str) -> PathBuf {
-    get_recordings_dir().join(format!("meeting_{}", meeting_id))
+    let safe_id: String = meeting_id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' })
+        .collect();
+    get_recordings_dir().join(format!("meeting_{}", safe_id))
+}
+
+/// Write `contents` via a temp file + fsync + rename, so a crash mid-write
+/// leaves the previous file intact instead of truncated JSON.
+pub fn write_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
+    tmp_name.push(".tmp");
+    let tmp = path.with_file_name(tmp_name);
+    let mut file = std::fs::File::create(&tmp)?;
+    file.write_all(contents)?;
+    file.sync_all()?;
+    std::fs::rename(&tmp, path)
 }
 
 /// Get the audio file path for a meeting
@@ -313,6 +337,48 @@ mod tests {
         std::fs::write(from.join("other.txt"), "y").unwrap();
         assert!(move_dir_contents(&from, &to).is_err());
         assert!(from.join("other.txt").is_file());
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn test_move_dir_contents_ignores_ds_store() {
+        let root = std::env::temp_dir().join(format!("noter-move-ds-{}", std::process::id()));
+        let (from, to) = (root.join("from"), root.join("to"));
+        std::fs::create_dir_all(from.join("meeting_a")).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        // Finder drops .DS_Store in both folders; it must not count as a clash.
+        std::fs::write(from.join(".DS_Store"), "f").unwrap();
+        std::fs::write(to.join(".DS_Store"), "t").unwrap();
+
+        move_dir_contents(&from, &to).unwrap();
+        assert!(to.join("meeting_a").is_dir());
+        assert_eq!(std::fs::read_to_string(to.join(".DS_Store")).unwrap(), "t");
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn test_meeting_dir_cannot_escape_recordings() {
+        let recordings = get_recordings_dir();
+        for id in ["../..", "a/../../b", "/etc", "..", "x\\..\\y"] {
+            let dir = get_meeting_dir(id);
+            assert_eq!(dir.parent(), Some(recordings.as_path()), "id {id:?} -> {}", dir.display());
+        }
+        let uuid = "3f2b8c1e-9a4d-4e2b-8f1a-0c9d2e7b6a51";
+        assert!(get_meeting_dir(uuid).ends_with(format!("meeting_{uuid}")));
+    }
+
+    #[test]
+    fn test_write_atomic_replaces_and_leaves_no_temp() {
+        let root = std::env::temp_dir().join(format!("noter-atomic-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("index.json");
+        std::fs::write(&path, "old").unwrap();
+
+        write_atomic(&path, b"new").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
 
         std::fs::remove_dir_all(&root).unwrap();
     }
